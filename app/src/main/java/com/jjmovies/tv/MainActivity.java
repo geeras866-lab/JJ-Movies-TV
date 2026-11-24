@@ -14,15 +14,21 @@ import android.webkit.WebViewClient;
 
 public class MainActivity extends Activity {
     private WebView webView;
-    private static final String SITE_URL = "https://jj-movies.pages.dev";
+    private static final String SITE_URL = "https://jj-movies.pages.dev/?tv=1";
 
     public class TvBridge {
         @JavascriptInterface
         public void playVideo(String url) {
+            playVideo(url, "JJ Movies");
+        }
+
+        @JavascriptInterface
+        public void playVideo(String url, String title) {
             if (url == null || url.isEmpty()) return;
             runOnUiThread(() -> {
                 Intent intent = new Intent(MainActivity.this, VlcPlayerActivity.class);
                 intent.putExtra("VIDEO_URL", url);
+                intent.putExtra("VIDEO_TITLE", title != null ? title : "JJ Movies");
                 startActivity(intent);
             });
         }
@@ -43,9 +49,12 @@ public class MainActivity extends Activity {
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
-        s.setUserAgentString("Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+        s.setUserAgentString("Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 JJTV");
 
-        webView.addJavascriptInterface(new TvBridge(), "AndroidTV");
+        TvBridge bridge = new TvBridge();
+        webView.addJavascriptInterface(bridge, "AndroidVlc");
+        webView.addJavascriptInterface(bridge, "AndroidTV");
+
         webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -73,7 +82,7 @@ public class MainActivity extends Activity {
             + "    if(v.__vlcHooked) return; v.__vlcHooked = true;"
             + "    v.addEventListener('play', () => {"
             + "      const src = v.currentSrc || v.src;"
-            + "      if(src && window.AndroidTV){ v.pause(); window.AndroidTV.playVideo(src); }"
+            + "      if(src && window.AndroidVlc){ v.pause(); window.AndroidVlc.playVideo(src, document.title || 'JJ Movies'); }"
             + "    });"
             + "  });"
             + "}"
