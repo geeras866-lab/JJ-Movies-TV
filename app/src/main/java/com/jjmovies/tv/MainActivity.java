@@ -1,11 +1,12 @@
 package com.jjmovies.tv;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.KeyEvent;
-import android.view.View;
 import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -14,6 +15,18 @@ import android.webkit.WebViewClient;
 public class MainActivity extends Activity {
     private WebView webView;
     private static final String SITE_URL = "https://jj-movies.pages.dev";
+
+    public class TvBridge {
+        @JavascriptInterface
+        public void playVideo(String url) {
+            if (url == null || url.isEmpty()) return;
+            runOnUiThread(() -> {
+                Intent intent = new Intent(MainActivity.this, VlcPlayerActivity.class);
+                intent.putExtra("VIDEO_URL", url);
+                startActivity(intent);
+            });
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -32,6 +45,7 @@ public class MainActivity extends Activity {
         s.setUseWideViewPort(true);
         s.setUserAgentString("Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
 
+        webView.addJavascriptInterface(new TvBridge(), "AndroidTV");
         webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -54,10 +68,20 @@ public class MainActivity extends Activity {
             + "  body { cursor: none; }"
             + "`;"
             + "document.head.appendChild(style);"
+            + "function hookVideos(){"
+            + "  document.querySelectorAll('video').forEach(v => {"
+            + "    if(v.__vlcHooked) return; v.__vlcHooked = true;"
+            + "    v.addEventListener('play', () => {"
+            + "      const src = v.currentSrc || v.src;"
+            + "      if(src && window.AndroidTV){ v.pause(); window.AndroidTV.playVideo(src); }"
+            + "    });"
+            + "  });"
+            + "}"
             + "function makeFocusable(){"
             + "  document.querySelectorAll('a, button, input, [onclick], .movie-card, .card').forEach(el => {"
             + "    if(!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');"
             + "  });"
+            + "  hookVideos();"
             + "}"
             + "makeFocusable();"
             + "new MutationObserver(makeFocusable).observe(document.body, {childList:true, subtree:true});"
