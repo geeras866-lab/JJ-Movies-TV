@@ -1,6 +1,8 @@
 name: Build JJ Movies TV APK
 
 on:
+  push:
+    branches: [ "main" ]
   workflow_dispatch:
     inputs:
       app_version:
