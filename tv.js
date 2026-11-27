@@ -502,11 +502,19 @@
     }).filter(isPlayableItem);
   }
 
+  function scrollMainToTop() {
+    var mainEl = document.getElementById("jjTvMain");
+    if (mainEl) mainEl.scrollTop = 0;
+  }
+
   function switchTvNav(navKey) {
     tvCurrentSection = navKey;
     document.querySelectorAll(".jj-tv-nav-item").forEach(function (b) {
       b.classList.toggle("active", b.getAttribute("data-nav") === navKey);
     });
+
+    closeTvDetails();
+    scrollMainToTop();
 
     var hero = document.getElementById("jjTvHero");
     var rows = document.getElementById("jjTvRows");
@@ -517,6 +525,7 @@
       if (rows) rows.style.display = "none";
       if (searchPanel) searchPanel.classList.add("open");
       renderTvSearchResults();
+      scrollMainToTop();
       var inp = document.getElementById("jjTvSearchInput");
       if (inp) setTvFocus(inp);
       return;
@@ -527,6 +536,15 @@
     if (rows) rows.style.display = "block";
 
     renderHeroAndRows(true);
+    scrollMainToTop();
+
+    setTimeout(function () {
+      scrollMainToTop();
+      var heroPlay = document.getElementById("jjHeroPlayBtn");
+      if (heroPlay && heroPlay.offsetParent !== null) {
+        setTvFocus(heroPlay);
+      }
+    }, 30);
   }
 
   function getFilteredBaseItems() {
@@ -580,7 +598,8 @@
         btn.textContent = cat === "all" ? "ALL CATEGORIES" : cat.toUpperCase();
         btn.addEventListener("click", function () {
           tvSelectedCategory = cat;
-          renderHeroAndRows(false);
+          renderHeroAndRows(true);
+          scrollMainToTop();
         });
         catBar.appendChild(btn);
       });
@@ -978,6 +997,10 @@
     el.classList.add("tv-focused");
     try {
       el.focus({ preventScroll: true });
+      if (el.id === "jjHeroPlayBtn" || el.id === "jjHeroInfoBtn" || el.id === "jjTvSearchInput") {
+        scrollMainToTop();
+        return;
+      }
       var track = el.closest ? el.closest(".jj-tv-row-track") : null;
       if (track) {
         var elLeft = el.offsetLeft;
@@ -1071,7 +1094,6 @@
     var isDetailsOpen = Boolean(det && det.classList.contains("open"));
     var cur = document.querySelector(".tv-focused") || document.activeElement;
 
-    // Sidebar navigation when main screen is active
     if (!isDetailsOpen) {
       var sidebarItems = getVisibleItems(document.getElementById("jjTvSidebar"), ".jj-tv-nav-item");
       var sIdx = sidebarItems.indexOf(cur);
@@ -1203,6 +1225,7 @@
   function ingestMovies(list) {
     tvAllItems = normalizeItems(list);
     renderHeroAndRows(true);
+    scrollMainToTop();
     hideSplashScreen();
   }
 
