@@ -169,7 +169,7 @@
     return fallbackObj;
   }
 
-  // ---------- Stream Routing: Native LibVLC vs Filemoon / Embed Player ----------
+  // ---------- Stream Routing: Native LibVLC vs Native TV Embed Player ----------
   function isDirectMediaUrl(url) {
     if (!url) return false;
     return /\.(mp4|mkv|webm|m3u8|avi|mov|ts|flv|m4v)(\?.*)?$/i.test(url) ||
@@ -201,6 +201,11 @@
   }
 
   function openTvEmbedPlayer(title, embedUrl, backupStream, meta) {
+    if (window.AndroidTV && typeof window.AndroidTV.openEmbedPlayer === "function") {
+      window.AndroidTV.openEmbedPlayer(embedUrl, title || "JJ Movies TV");
+      return;
+    }
+
     closeTvEmbedPlayer();
     tvLastFocusedBeforeEmbed = document.activeElement;
 
@@ -209,7 +214,7 @@
     modal.style.cssText = "position:fixed;inset:0;z-index:999990;background:#000000;display:flex;flex-direction:column;";
 
     var topBar = document.createElement("div");
-    topBar.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 22px;background:linear-gradient(180deg,rgba(0,0,0,0.92),rgba(0,0,0,0));position:absolute;top:0;left:0;right:0;z-index:5;transition:opacity 0.3s;";
+    topBar.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 22px;background:rgba(0,0,0,0.9);position:absolute;top:0;left:0;right:0;z-index:5;";
 
     var titleSpan = document.createElement("div");
     titleSpan.style.cssText = "color:#ffffff;font-size:16px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
@@ -247,7 +252,7 @@
     iframe.allowFullscreen = true;
     iframe.setAttribute("webkitallowfullscreen", "true");
     iframe.setAttribute("mozallowfullscreen", "true");
-    iframe.setAttribute("referrerpolicy", "no-referrer");
+    iframe.setAttribute("referrerpolicy", "origin");
     iframe.setAttribute("allow", "autoplay; fullscreen; picture-in-picture; encrypted-media; screen-wake-lock");
     iframe.style.cssText = "width:100%;height:100%;border:0;flex:1;background:#000000;";
 
@@ -256,9 +261,6 @@
     document.body.appendChild(modal);
 
     setTvFocus(closeBtn);
-    iframe.addEventListener("load", function () {
-      try { iframe.focus(); } catch (e) {}
-    });
   }
 
   async function resolveAndPlayInVlc(title, rawStream, backupStream, meta) {
