@@ -98,10 +98,16 @@ jobs:
           fi
 
           npx cap copy android
+          npx cap sync android
 
           if [ -d "assets" ]; then
             npm install --no-save @capacitor/assets || true
             npx capacitor-assets generate --android --iconBackgroundColor '#080d18' --splashBackgroundColor '#080d18' || true
+          fi
+
+          if [ -f "android/variables.gradle" ]; then
+            sed -i 's/compileSdkVersion = [0-9]*/compileSdkVersion = 35/' android/variables.gradle
+            sed -i 's/targetSdkVersion = [0-9]*/targetSdkVersion = 35/' android/variables.gradle
           fi
 
           GRADLE="android/app/build.gradle"
