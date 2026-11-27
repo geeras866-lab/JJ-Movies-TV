@@ -22,6 +22,7 @@
   var tvLastFocusedBeforeDetails = null;
   var tvLastFocusedBeforeEmbed = null;
   var tvTmdbMemoryCache = {};
+  var tvIsLaunchingStream = false;
 
   try {
     var savedTmdb = localStorage.getItem(TMDB_CACHE_KEY);
@@ -45,7 +46,7 @@
     if (!el) {
       el = document.createElement("div");
       el.id = "jjTvToast";
-      el.style.cssText = "position:fixed;bottom:34px;left:50%;transform:translateX(-50%);z-index:999998;background:rgba(13,21,38,0.96);border:1.5px solid #ff2450;color:#fff;padding:12px 24px;border-radius:12px;font-size:15px;font-weight:800;box-shadow:0 12px 32px rgba(0,0,0,0.9);pointer-events:none;transition:opacity 0.2s;";
+      el.style.cssText = "position:fixed;bottom:34px;left:50%;transform:translateX(-50%);z-index:999998;background:rgba(13,21,38,0.96);border:1.5px solid #ff2450;color:#fff;padding:12px 24px;border-radius:12px;font-size:15px;font-weight:800;box-shadow:0 12px 32px rgba(0,0,0,0.9);pointer-events:none;";
       document.body.appendChild(el);
     }
     el.textContent = msg;
@@ -53,7 +54,7 @@
     clearTimeout(el._t);
     el._t = setTimeout(function () {
       el.style.opacity = "0";
-    }, 2600);
+    }, 2200);
   }
 
   function isPlayableItem(m) {
@@ -91,6 +92,27 @@
     return raw;
   }
 
+  function getCachedTmdbSync(movie) {
+    var fallbackBackdrop = getHighResImage(movie.poster, true);
+    var fallbackPoster = getHighResImage(movie.poster, false);
+    var cacheKey = (movie.type === "series" ? "tv_" : "mv_") + String(movie.id || movie.title).toLowerCase();
+    var cached = tvTmdbMemoryCache[cacheKey];
+    if (cached) {
+      return {
+        backdrop: cached.backdrop || fallbackBackdrop,
+        poster: fallbackPoster || cached.poster || "",
+        overview: movie.description || cached.overview || "",
+        vote: cached.vote || ""
+      };
+    }
+    return {
+      backdrop: fallbackBackdrop,
+      poster: fallbackPoster,
+      overview: movie.description || "",
+      vote: ""
+    };
+  }
+
   function cleanTitleForTmdb(rawTitle) {
     return String(rawTitle || "")
       .replace(/[\(\[\{].*?[\)\]\}]/g, " ")
@@ -101,26 +123,12 @@
   }
 
   async function fetchTmdbMeta(movie) {
-    var fallbackBackdrop = getHighResImage(movie.poster, true);
-    var fallbackPoster = getHighResImage(movie.poster, false);
-    var fallbackObj = {
-      backdrop: fallbackBackdrop,
-      poster: fallbackPoster,
-      overview: movie.description || "",
-      vote: ""
-    };
-
+    var fallbackObj = getCachedTmdbSync(movie);
     if (!TMDB_API_KEY) return fallbackObj;
 
     var cacheKey = (movie.type === "series" ? "tv_" : "mv_") + String(movie.id || movie.title).toLowerCase();
-    if (tvTmdbMemoryCache[cacheKey]) {
-      var cached = tvTmdbMemoryCache[cacheKey];
-      return {
-        backdrop: cached.backdrop || fallbackBackdrop,
-        poster: fallbackPoster || cached.poster || "",
-        overview: movie.description || cached.overview || "",
-        vote: cached.vote || ""
-      };
+    if (tvTmdbMemoryCache[cacheKey] && tvTmdbMemoryCache[cacheKey]._fetched) {
+      return fallbackObj;
     }
 
     var cleanTitle = cleanTitleForTmdb(movie.title);
@@ -148,28 +156,26 @@
         hit = retryData && Array.isArray(retryData.results) ? retryData.results[0] : null;
       }
 
-      if (hit) {
-        var entry = {
-          backdrop: hit.backdrop_path ? ("https://image.tmdb.org/t/p/w1280" + hit.backdrop_path) : "",
-          poster: hit.poster_path ? ("https://image.tmdb.org/t/p/w500" + hit.poster_path) : "",
-          overview: hit.overview || "",
-          vote: hit.vote_average && hit.vote_average > 0 ? Number(hit.vote_average).toFixed(1) : ""
-        };
-        tvTmdbMemoryCache[cacheKey] = entry;
-        saveTmdbCache();
-        return {
-          backdrop: entry.backdrop || fallbackBackdrop,
-          poster: fallbackPoster || entry.poster || "",
-          overview: movie.description || entry.overview || "",
-          vote: entry.vote
-        };
-      }
+      var entry = {
+        _fetched: true,
+        backdrop: hit && hit.backdrop_path ? ("https://image.tmdb.org/t/p/w1280" + hit.backdrop_path) : fallbackObj.backdrop,
+        poster: hit && hit.poster_path ? ("https://image.tmdb.org/t/p/w500" + hit.poster_path) : fallbackObj.poster,
+        overview: hit && hit.overview ? hit.overview : fallbackObj.overview,
+        vote: hit && hit.vote_average && hit.vote_average > 0 ? Number(hit.vote_average).toFixed(1) : ""
+      };
+      tvTmdbMemoryCache[cacheKey] = entry;
+      saveTmdbCache();
+      return {
+        backdrop: entry.backdrop,
+        poster: fallbackObj.poster || entry.poster || "",
+        overview: movie.description || entry.overview || "",
+        vote: entry.vote
+      };
     } catch (e) {}
 
     return fallbackObj;
   }
 
-  // ---------- Stream Routing: Native LibVLC vs Native TV Embed Player ----------
   function isDirectMediaUrl(url) {
     if (!url) return false;
     return /\.(mp4|mkv|webm|m3u8|avi|mov|ts|flv|m4v)(\?.*)?$/i.test(url) ||
@@ -263,12 +269,24 @@
     setTvFocus(closeBtn);
   }
 
+  function triggerNativeVlc(url, title) {
+    if (window.AndroidVlc && typeof window.AndroidVlc.playVideo === "function") {
+      window.AndroidVlc.playVideo(String(url), String(title || "JJ Movies TV"));
+      return true;
+    }
+    return false;
+  }
+
   async function resolveAndPlayInVlc(title, rawStream, backupStream, meta) {
+    if (tvIsLaunchingStream) return;
     var chosen = String(rawStream || "").trim() || String(backupStream || "").trim();
     if (!chosen) {
       showTvToast("Stream link not available");
       return;
     }
+
+    tvIsLaunchingStream = true;
+    setTimeout(function () { tvIsLaunchingStream = false; }, 1500);
 
     try {
       var playableUrl = "";
@@ -297,7 +315,7 @@
         }
 
         if (workerFile) {
-          showTvToast("⚡ Loading in VLC Player...");
+          showTvToast("⚡ Loading Dolby / HD Stream...");
           var qp = new URLSearchParams();
           qp.set("file", workerFile);
           if (meta && meta.id) qp.set("id", String(meta.id));
@@ -315,12 +333,12 @@
       }
 
       if (isDirect) {
-        if (window.AndroidVlc && typeof window.AndroidVlc.playVideo === "function") {
-          window.AndroidVlc.playVideo(playableUrl, title || "JJ Movies TV");
-        } else if (typeof window.openServerSelection === "function") {
-          window.openServerSelection(title, playableUrl, backupStream, "token", meta);
-        } else {
-          window.location.href = playableUrl;
+        if (!triggerNativeVlc(playableUrl, title)) {
+          if (typeof window.openServerSelection === "function") {
+            window.openServerSelection(title, playableUrl, backupStream, "token", meta);
+          } else {
+            window.location.href = playableUrl;
+          }
         }
       } else {
         showTvToast("▶ Opening Stream Player...");
@@ -328,7 +346,10 @@
       }
     } catch (err) {
       if (backupStream && backupStream !== chosen) {
+        tvIsLaunchingStream = false;
         resolveAndPlayInVlc(title, backupStream, "", meta);
+      } else if (/^https?:\/\//i.test(chosen) && !triggerNativeVlc(chosen, title)) {
+        openTvEmbedPlayer(title, normalizeEmbedUrl(chosen), "", meta);
       } else {
         showTvToast("Stream Error: " + (err && err.message ? err.message : "Failed"));
       }
@@ -448,7 +469,7 @@
     if (splash && !splash.classList.contains("hide")) {
       setTimeout(function () {
         splash.classList.add("hide");
-      }, 650);
+      }, 450);
     }
   }
 
@@ -501,7 +522,7 @@
     if (hero) hero.style.display = "block";
     if (rows) rows.style.display = "block";
 
-    renderHeroAndRows();
+    renderHeroAndRows(true);
   }
 
   function getFilteredBaseItems() {
@@ -519,20 +540,21 @@
     return tvAllItems;
   }
 
-  function renderHeroAndRows() {
+  function renderHeroAndRows(resetInitialFocus) {
     var base = getFilteredBaseItems();
     var pinned = base.filter(function (m) { return m.pinned; });
     tvHeroItems = (pinned.length ? pinned : base).slice(0, 5);
     tvHeroIndex = 0;
 
-    renderHeroSlide(0);
+    renderHeroSlide(0, Boolean(resetInitialFocus));
     if (tvHeroTimer) clearInterval(tvHeroTimer);
     if (tvHeroItems.length > 1) {
       tvHeroTimer = setInterval(function () {
         if (document.getElementById("jjTvDetails").classList.contains("open")) return;
+        if (document.getElementById("jjTvEmbedModal")) return;
         tvHeroIndex = (tvHeroIndex + 1) % tvHeroItems.length;
-        renderHeroSlide(tvHeroIndex);
-      }, 6500);
+        renderHeroSlide(tvHeroIndex, false);
+      }, 7000);
     }
 
     var rowsContainer = document.getElementById("jjTvRows");
@@ -554,7 +576,7 @@
         btn.textContent = cat === "all" ? "ALL CATEGORIES" : cat.toUpperCase();
         btn.addEventListener("click", function () {
           tvSelectedCategory = cat;
-          renderHeroAndRows();
+          renderHeroAndRows(false);
         });
         catBar.appendChild(btn);
       });
@@ -599,23 +621,18 @@
     });
   }
 
-  async function renderHeroSlide(idx) {
+  function paintHeroSlide(idx, movie, tmdb, takeFocus) {
     var heroEl = document.getElementById("jjTvHero");
-    if (!heroEl) return;
-    var movie = tvHeroItems[idx];
-    if (!movie) {
-      heroEl.style.display = "none";
-      return;
-    }
+    if (!heroEl || !movie) return;
     heroEl.style.display = "block";
-    var tmdb = await fetchTmdbMeta(movie);
     var bgUrl = tmdb.backdrop;
     var descText = tmdb.overview || "Stream in Full HD with instant playback on JJ Movies TV.";
     var dotsHtml = tvHeroItems.map(function (_, i) {
       return '<span class="jj-hero-dot' + (i === idx ? " active" : "") + '"></span>';
     }).join("");
 
-    var hadPlayFocus = document.activeElement && document.activeElement.id === "jjHeroPlayBtn";
+    var curFocusedId = document.activeElement ? document.activeElement.id : "";
+    var hadHeroFocus = (curFocusedId === "jjHeroPlayBtn" || curFocusedId === "jjHeroInfoBtn");
 
     heroEl.innerHTML =
       (bgUrl ? '<img class="jj-hero-bg" src="' + esc(bgUrl) + '" alt="' + esc(movie.title) + '">' : '') +
@@ -648,13 +665,37 @@
           resolveAndPlayInVlc(movie.title, movie.stream1, movie.stream2, { id: movie.id });
         }
       });
-      if (hadPlayFocus || !document.querySelector(".tv-focused")) {
+      if (takeFocus || hadHeroFocus) {
         setTvFocus(playBtn);
       }
     }
     if (infoBtn) {
       infoBtn.addEventListener("click", function () {
         openTvDetails(movie);
+      });
+      if (hadHeroFocus && curFocusedId === "jjHeroInfoBtn") {
+        setTvFocus(infoBtn);
+      }
+    }
+  }
+
+  function renderHeroSlide(idx, takeFocus) {
+    var heroEl = document.getElementById("jjTvHero");
+    if (!heroEl) return;
+    var movie = tvHeroItems[idx];
+    if (!movie) {
+      heroEl.style.display = "none";
+      return;
+    }
+
+    var cached = getCachedTmdbSync(movie);
+    paintHeroSlide(idx, movie, cached, takeFocus);
+
+    if (TMDB_API_KEY && !cached._fetched) {
+      fetchTmdbMeta(movie).then(function (fresh) {
+        if (tvHeroItems[idx] && String(tvHeroItems[idx].id) === String(movie.id)) {
+          paintHeroSlide(idx, movie, fresh, false);
+        }
       });
     }
   }
@@ -703,30 +744,11 @@
     var img = card.querySelector("img");
     if (img) {
       img.onerror = function () {
-        fetchTmdbMeta(movie).then(function (tmdb) {
-          if (tmdb.poster && img.src !== tmdb.poster) {
-            img.src = tmdb.poster;
-          } else {
-            var fb = document.createElement("div");
-            fb.className = "jj-card-fallback";
-            fb.textContent = movie.title;
-            img.replaceWith(fb);
-          }
-        });
+        var fb = document.createElement("div");
+        fb.className = "jj-card-fallback";
+        fb.textContent = movie.title;
+        img.replaceWith(fb);
       };
-    } else {
-      fetchTmdbMeta(movie).then(function (tmdb) {
-        if (tmdb.poster) {
-          var fbEl = card.querySelector(".jj-card-fallback");
-          if (fbEl) {
-            var newImg = document.createElement("img");
-            newImg.src = tmdb.poster;
-            newImg.alt = movie.title;
-            newImg.loading = "lazy";
-            fbEl.replaceWith(newImg);
-          }
-        }
-      });
     }
 
     card.addEventListener("click", function () {
@@ -736,13 +758,9 @@
     return card;
   }
 
-  // ---------- Clean Full-Screen Details (Zero Telegram / Zero Downloads) ----------
-  async function openTvDetails(movie) {
+  function paintDetailsView(movie, tmdb) {
     var det = document.getElementById("jjTvDetails");
     if (!det) return;
-    tvLastFocusedBeforeDetails = document.activeElement;
-
-    var tmdb = await fetchTmdbMeta(movie);
     var bgUrl = tmdb.backdrop;
     var descText = tmdb.overview || "Watch in high definition with instant streaming on JJ Movies TV.";
     var isSeriesItem = movie.type === "series";
@@ -786,9 +804,6 @@
         '<div id="jjDetMoreLike"></div>' +
       '</div>';
 
-    det.classList.add("open");
-    det.scrollTop = 0;
-
     var playMain = document.getElementById("jjDetPlayMain");
     if (playMain) {
       playMain.addEventListener("click", function () {
@@ -821,6 +836,38 @@
     var moreBox = document.getElementById("jjDetMoreLike");
     if (moreBox && related.length) {
       moreBox.appendChild(buildRowElement("More Like This", related, false));
+    }
+  }
+
+  function openTvDetails(movie) {
+    var det = document.getElementById("jjTvDetails");
+    if (!det) return;
+    tvLastFocusedBeforeDetails = document.activeElement;
+
+    var cached = getCachedTmdbSync(movie);
+    det.classList.add("open");
+    det.scrollTop = 0;
+    paintDetailsView(movie, cached);
+
+    if (TMDB_API_KEY && !cached._fetched) {
+      fetchTmdbMeta(movie).then(function (fresh) {
+        if (!det.classList.contains("open")) return;
+        var titleEl = det.querySelector(".jj-det-title");
+        if (titleEl && titleEl.textContent === movie.title) {
+          var bgEl = det.querySelector(".jj-det-backdrop");
+          if (fresh.backdrop && !bgEl) {
+            var img = document.createElement("img");
+            img.className = "jj-det-backdrop";
+            img.src = fresh.backdrop;
+            img.alt = movie.title;
+            det.prepend(img);
+          } else if (bgEl && fresh.backdrop) {
+            bgEl.src = fresh.backdrop;
+          }
+          var descEl = det.querySelector(".jj-det-desc");
+          if (descEl && fresh.overview) descEl.textContent = fresh.overview;
+        }
+      });
     }
   }
 
@@ -870,9 +917,6 @@
           });
         });
 
-        var firstEp = area.querySelector(".jj-det-ep-card");
-        if (firstEp) setTvFocus(firstEp);
-
         area.querySelectorAll(".jj-det-ep-card").forEach(function (epBtn) {
           epBtn.addEventListener("click", function () {
             var ep = eps.find(function (x) { return String(x.id) === epBtn.getAttribute("data-epid"); });
@@ -920,16 +964,14 @@
     });
   }
 
-  // ---------- Spatial D-Pad Remote Navigation ----------
   function setTvFocus(el) {
     if (!el) return;
-    document.querySelectorAll(".tv-focused").forEach(function (prev) {
-      prev.classList.remove("tv-focused");
-    });
+    var prev = document.querySelector(".tv-focused");
+    if (prev && prev !== el) prev.classList.remove("tv-focused");
     el.classList.add("tv-focused");
     try {
       el.focus({ preventScroll: true });
-      el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+      el.scrollIntoView({ behavior: "auto", block: "nearest", inline: "nearest" });
     } catch (e) {}
   }
 
@@ -937,20 +979,17 @@
     var embedModal = document.getElementById("jjTvEmbedModal");
     if (embedModal) {
       return Array.from(embedModal.querySelectorAll("button")).filter(function (el) {
-        var r = el.getBoundingClientRect();
-        return r.width > 0 && r.height > 0;
+        return el.offsetParent !== null;
       });
     }
     var det = document.getElementById("jjTvDetails");
     if (det && det.classList.contains("open")) {
       return Array.from(det.querySelectorAll("button, a, .jj-tv-card")).filter(function (el) {
-        var r = el.getBoundingClientRect();
-        return r.width > 0 && r.height > 0;
+        return el.offsetParent !== null;
       });
     }
     return Array.from(document.querySelectorAll("#jjTvSidebar .jj-tv-nav-item, #jjTvMain button, #jjTvMain input, #jjTvMain .jj-tv-card")).filter(function (el) {
-      var r = el.getBoundingClientRect();
-      return r.width > 0 && r.height > 0;
+      return el.offsetParent !== null;
     });
   }
 
@@ -969,8 +1008,9 @@
     var best = null;
     var bestScore = Infinity;
 
-    pool.forEach(function (el) {
-      if (el === cur) return;
+    for (var i = 0; i < pool.length; i++) {
+      var el = pool[i];
+      if (el === cur) continue;
       var r = el.getBoundingClientRect();
       var tx = r.left + r.width / 2;
       var ty = r.top + r.height / 2;
@@ -979,16 +1019,16 @@
 
       var ok = false;
       var score = Infinity;
-      if (dir === "ArrowRight" && dx > 10) {
+      if (dir === "ArrowRight" && dx > 8) {
         ok = true;
         score = dx + Math.abs(dy) * 2.8;
-      } else if (dir === "ArrowLeft" && dx < -10) {
+      } else if (dir === "ArrowLeft" && dx < -8) {
         ok = true;
         score = Math.abs(dx) + Math.abs(dy) * 2.8;
-      } else if (dir === "ArrowDown" && dy > 10) {
+      } else if (dir === "ArrowDown" && dy > 8) {
         ok = true;
         score = dy + Math.abs(dx) * 1.6;
-      } else if (dir === "ArrowUp" && dy < -10) {
+      } else if (dir === "ArrowUp" && dy < -8) {
         ok = true;
         score = Math.abs(dy) + Math.abs(dx) * 1.6;
       }
@@ -997,7 +1037,7 @@
         bestScore = score;
         best = el;
       }
-    });
+    }
 
     if (best) setTvFocus(best);
   }
@@ -1022,6 +1062,9 @@
   document.addEventListener("keydown", function (e) {
     var k = e.key;
     if (k === "ArrowUp" || k === "ArrowDown" || k === "ArrowLeft" || k === "ArrowRight") {
+      if (document.activeElement && document.activeElement.tagName === "INPUT" && (k === "ArrowLeft" || k === "ArrowRight")) {
+        return;
+      }
       e.preventDefault();
       navigateDpad(k);
     } else if (k === "Enter") {
@@ -1041,7 +1084,7 @@
 
   function ingestMovies(list) {
     tvAllItems = normalizeItems(list);
-    renderHeroAndRows();
+    renderHeroAndRows(true);
     hideSplashScreen();
   }
 
