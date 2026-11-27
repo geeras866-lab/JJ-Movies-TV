@@ -112,6 +112,9 @@ jobs:
 
       - name: Configure TV Manifest, FileProvider, Gradle & Native LibVLC Player
         run: |
+          VER_NAME="${{ github.event.inputs.app_version || '1.0.0' }}"
+          VER_CODE="${{ github.event.inputs.version_code || '1' }}"
+
           mkdir -p android/app/src/main/res/xml
           cat << 'EOF' > android/app/src/main/res/xml/file_paths.xml
           <?xml version="1.0" encoding="utf-8"?>
@@ -489,7 +492,7 @@ jobs:
           }
           EOF
 
-          cat << 'EOF' > android/app/build.gradle
+          cat << EOF > android/app/build.gradle
           plugins {
               id 'com.android.application'
           }
