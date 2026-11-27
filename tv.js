@@ -964,6 +964,7 @@
     });
   }
 
+  // ---------- Row-Aware Spatial D-Pad Navigation ----------
   function setTvFocus(el) {
     if (!el) return;
     var prev = document.querySelector(".tv-focused");
@@ -971,6 +972,18 @@
     el.classList.add("tv-focused");
     try {
       el.focus({ preventScroll: true });
+      var track = el.closest ? el.closest(".jj-tv-row-track") : null;
+      if (track) {
+        var elLeft = el.offsetLeft;
+        var elRight = elLeft + el.offsetWidth;
+        var viewLeft = track.scrollLeft;
+        var viewRight = viewLeft + track.clientWidth;
+        if (elLeft < viewLeft + 12) {
+          track.scrollLeft = Math.max(0, elLeft - 12);
+        } else if (elRight > viewRight - 12) {
+          track.scrollLeft = Math.max(0, elRight - track.clientWidth + 12);
+        }
+      }
       el.scrollIntoView({ behavior: "auto", block: "nearest", inline: "nearest" });
     } catch (e) {}
   }
@@ -1002,6 +1015,29 @@
       return;
     }
 
+    // Horizontal step inside the same track/container first
+    var curTrack = cur.closest ? cur.closest(".jj-tv-row-track, .jj-det-actions, .jj-det-seasons, .jj-tv-nav-list") : null;
+    if (curTrack && (dir === "ArrowLeft" || dir === "ArrowRight")) {
+      var siblings = Array.from(curTrack.querySelectorAll("button, a, .jj-tv-card")).filter(function (el) {
+        return el.offsetParent !== null;
+      });
+      var sIdx = siblings.indexOf(cur);
+      if (sIdx !== -1) {
+        var nextIdx = dir === "ArrowRight" ? sIdx + 1 : sIdx - 1;
+        if (nextIdx >= 0 && nextIdx < siblings.length) {
+          setTvFocus(siblings[nextIdx]);
+          return;
+        }
+        if (dir === "ArrowLeft" && curTrack.classList.contains("jj-tv-row-track")) {
+          var activeNav = document.querySelector("#jjTvSidebar .jj-tv-nav-item.active") || document.querySelector("#jjTvSidebar .jj-tv-nav-item");
+          if (activeNav) {
+            setTvFocus(activeNav);
+            return;
+          }
+        }
+      }
+    }
+
     var cr = cur.getBoundingClientRect();
     var cx = cr.left + cr.width / 2;
     var cy = cr.top + cr.height / 2;
@@ -1019,18 +1055,18 @@
 
       var ok = false;
       var score = Infinity;
-      if (dir === "ArrowRight" && dx > 8) {
+      if (dir === "ArrowRight" && dx > 6) {
         ok = true;
-        score = dx + Math.abs(dy) * 2.8;
-      } else if (dir === "ArrowLeft" && dx < -8) {
+        score = Math.abs(dy) * 5.0 + Math.abs(dx) * 0.4;
+      } else if (dir === "ArrowLeft" && dx < -6) {
         ok = true;
-        score = Math.abs(dx) + Math.abs(dy) * 2.8;
-      } else if (dir === "ArrowDown" && dy > 8) {
+        score = Math.abs(dy) * 5.0 + Math.abs(dx) * 0.4;
+      } else if (dir === "ArrowDown" && dy > 16) {
         ok = true;
-        score = dy + Math.abs(dx) * 1.6;
-      } else if (dir === "ArrowUp" && dy < -8) {
+        score = Math.abs(dy) * 1.4 + Math.abs(dx) * 2.2;
+      } else if (dir === "ArrowUp" && dy < -16) {
         ok = true;
-        score = Math.abs(dy) + Math.abs(dx) * 1.6;
+        score = Math.abs(dy) * 1.4 + Math.abs(dx) * 2.2;
       }
 
       if (ok && score < bestScore) {
