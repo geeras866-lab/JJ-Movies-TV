@@ -496,12 +496,12 @@ jobs:
 
           android {
               namespace 'com.jjmovies.tv'
-              compileSdk 34
+              compileSdk 35
 
               defaultConfig {
                   applicationId "com.jjmovies.tv"
                   minSdk 21
-                  targetSdk 34
+                  targetSdk 35
                   versionCode ${VER_CODE}
                   versionName "${VER_NAME}"
                   ndk {
@@ -538,15 +538,11 @@ jobs:
           }
           EOF
 
-          if [ -f "android/capacitor.settings.gradle" ]; then
-            sed -i "s/versionCode [0-9]*/versionCode ${VER_CODE}/" android/app/build.gradle || true
-          fi
-
       - name: Build Debug TV APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug --console=plain --stacktrace
 
       - name: Upload TV APK Artifact
         uses: actions/upload-artifact@v4
