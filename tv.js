@@ -232,9 +232,27 @@
     }
   }
 
+  function getCustomLogoSrc() {
+    try {
+      if (window.__JJ_APP_LOGO__) return window.__JJ_APP_LOGO__;
+      if (window.AndroidTV && typeof window.AndroidTV.getAppLogo === "function") {
+        var logoData = window.AndroidTV.getAppLogo();
+        if (logoData && logoData.indexOf("data:image") === 0) {
+          window.__JJ_APP_LOGO__ = logoData;
+          return logoData;
+        }
+      }
+    } catch (e) {}
+    return "";
+  }
+
   function getJjSvgLogo(size) {
+    var customSrc = getCustomLogoSrc();
+    if (customSrc) {
+      return '<img src="' + customSrc + '" alt="JJ Movies" style="width:' + size + 'px;height:' + size + 'px;object-fit:contain;border-radius:22%;display:block;position:relative;z-index:2;" />';
+    }
     return (
-      '<svg width="' + size + '" height="' + size + '" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+      '<svg width="' + size + '" height="' + size + '" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style="position:relative;z-index:2;">' +
         '<defs>' +
           '<linearGradient id="jjRedGrad" x1="0" y1="0" x2="100" y2="100" gradientUnits="userSpaceOnUse">' +
             '<stop offset="0%" stop-color="#ff2a38"/>' +
@@ -260,7 +278,7 @@
       splash.innerHTML =
         '<div class="jj-splash-logo-wrap">' +
           '<div class="jj-splash-glow"></div>' +
-          getJjSvgLogo(96) +
+          getJjSvgLogo(106) +
         '</div>' +
         '<div class="jj-dot-spinner">' + dots + '</div>';
       document.body.appendChild(splash);
@@ -271,7 +289,7 @@
       app.id = "jjTvApp";
       app.innerHTML =
         '<aside id="jjTvSidebar">' +
-          '<div class="jj-tv-brand">' + getJjSvgLogo(44) + '</div>' +
+          '<div class="jj-tv-brand">' + getJjSvgLogo(52) + '</div>' +
           '<div class="jj-tv-nav-list">' +
             '<button type="button" class="jj-tv-nav-item active" data-nav="home">' +
               '<svg viewBox="0 0 24 24"><path d="M12 3L2 12h3v8h6v-6h2v6h6v-8h3L12 3z"/></svg>' +
