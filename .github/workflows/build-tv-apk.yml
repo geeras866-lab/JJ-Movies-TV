@@ -597,7 +597,7 @@ jobs:
           </RelativeLayout>
           EOF
 
-      - name: 3. Setup MainActivity & EmbedPlayerActivity with Remote Pointer
+      - name: 3. Setup MainActivity & EmbedPlayerActivity
         run: |
           cat << 'EOF' > app/src/main/java/com/jjmovies/tv/EmbedPlayerActivity.java
           package com.jjmovies.tv;
@@ -1029,6 +1029,8 @@ jobs:
           }
           EOF
 
+      - name: 4. Setup Native LibVLC Player with Dolby Digital Passthrough
+        run: |
           cat << 'EOF' > app/src/main/java/com/jjmovies/tv/VlcPlayerActivity.java
           package com.jjmovies.tv;
 
@@ -1353,10 +1355,10 @@ jobs:
                   }
 
                   ArrayList<String> options = new ArrayList<>();
-                  options.add("--audio-time-stretch");
                   options.add("--aout=audiotrack");
-                  options.add("--audio-resampler=soxr");
-                  options.add("--avcodec-hw=all");
+                  options.add("--no-audio-time-stretch");
+                  options.add("--spdif");
+                  options.add("--avcodec-hw=any");
                   options.add("--network-caching=3000");
                   options.add("--file-caching=1500");
                   options.add("--http-reconnect");
@@ -1364,6 +1366,7 @@ jobs:
 
                   libVLC = new LibVLC(this, options);
                   mediaPlayer = new MediaPlayer(libVLC);
+                  mediaPlayer.setAudioDigitalOutputEnabled(true);
                   mediaPlayer.attachViews(videoLayout, null, false, false);
 
                   mediaPlayer.setEventListener(event -> runOnUiThread(() -> {
@@ -1396,7 +1399,8 @@ jobs:
                   media.setHWDecoderEnabled(true, true);
                   media.addOption(":network-caching=3000");
                   media.addOption(":http-reconnect");
-                  media.addOption(":avcodec-hw=all");
+                  media.addOption(":no-audio-time-stretch");
+                  media.addOption(":spdif");
                   media.addOption(":freetype-rel-fontsize=" + subRelValues[subtitleSizeIndex]);
                   mediaPlayer.setMedia(media);
                   media.release();
