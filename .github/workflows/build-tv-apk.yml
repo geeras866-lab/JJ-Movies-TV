@@ -19,95 +19,35 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 21
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: "21"
+          java-version: "17"
           distribution: "temurin"
-          cache: "gradle"
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
         with:
-          node-version: "20"
+          gradle-version: "8.7"
 
-      - name: Prepare Web Assets for JJ Movies TV
-        run: |
-          rm -rf www
-          mkdir -p www
-
-          copy_root() {
-            for f in *; do
-              case "$f" in
-                www|android|node_modules|.git|.github|assets|capacitor.config.json) continue ;;
-                *.apk|*.aab|*.zip|*.keystore|*.jks) continue ;;
-                *)
-                  if [ -e "$f" ]; then
-                    cp -r "$f" www/
-                  fi
-                  ;;
-              esac
-            done
-          }
-
-          if [ -f index.html ]; then
-            copy_root
-          else
-            IDX=$(find . -name index.html -not -path "./node_modules/*" -not -path "./android/*" -not -path "./www/*" -not -path "./.git/*" | head -n 1)
-            if [ -n "$IDX" ]; then
-              SRC=$(dirname "$IDX")
-              cp -r "$SRC"/. www/
-            else
-              HTML=$(ls *.html 2>/dev/null | head -n 1 || true)
-              if [ -n "$HTML" ]; then
-                copy_root
-                cp "$HTML" www/index.html
-              fi
-            fi
-          fi
-
-          if [ ! -f www/index.html ]; then
-            echo "ERROR: no HTML entry file found in repo"
-            exit 1
-          fi
-
-          rm -f www/package.json www/package-lock.json
-          if [ ! -f package.json ]; then
-            npm init -y >/dev/null 2>&1
-          fi
-          npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/screen-orientation@7
-
-      - name: Initialize or Update Android TV Capacitor Project
+      - name: Generate Native Android TV Project & Bundle TV Assets
         run: |
           VER_NAME="${{ github.event.inputs.app_version || '1.0.0' }}"
           VER_CODE="${{ github.event.inputs.version_code || '1' }}"
 
-          cat << 'EOF' > capacitor.config.json
-          {
-            "appId": "com.jjmovies.tv",
-            "appName": "JJ Movies TV",
-            "webDir": "www",
-            "server": {
-              "androidScheme": "https"
-            }
-          }
-          EOF
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/java/com/jjmovies/tv
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/mipmap-anydpi-v26
 
-          if [ ! -d "android" ]; then
-            npx cap add android
-          fi
+          [ -f tv.css ] && cp tv.css app/src/main/assets/tv.css
+          [ -f tv.js ] && cp tv.js app/src/main/assets/tv.js
 
-          npx cap copy android
-
-          if [ -d "assets" ]; then
-            npm install --no-save @capacitor/assets || true
-            npx capacitor-assets generate --android --iconBackgroundColor '#080d18' --splashBackgroundColor '#080d18' || true
-          fi
-
-          cat << 'EOF' > android/settings.gradle
+          cat << 'EOF' > settings.gradle
           pluginManagement {
               repositories {
                   google()
@@ -124,26 +64,261 @@ jobs:
           }
           rootProject.name = "JJ-Movies-TV"
           include ':app'
-          include ':capacitor-android'
-          project(':capacitor-android').projectDir = new File('../node_modules/@capacitor/android/capacitor')
           EOF
 
-          GRADLE="android/app/build.gradle"
-          if [ -f "$GRADLE" ]; then
-            sed -i "s/applicationId \"[^\"]*\"/applicationId \"com.jjmovies.tv\"/" "$GRADLE"
-            sed -i "s/versionCode [0-9]*/versionCode ${VER_CODE}/" "$GRADLE"
-            sed -i "s/versionName \"[^\"]*\"/versionName \"${VER_NAME}\"/" "$GRADLE"
-          fi
+          cat << 'EOF' > build.gradle
+          plugins {
+              id 'com.android.application' version '8.3.2' apply false
+          }
+          EOF
 
-          STR="android/app/src/main/res/values/strings.xml"
-          if [ -f "$STR" ]; then
-            sed -i 's|<string name="app_name">[^<]*</string>|<string name="app_name">JJ Movies TV</string>|' "$STR"
-            sed -i 's|<string name="title_activity_main">[^<]*</string>|<string name="title_activity_main">JJ Movies TV</string>|' "$STR"
-          fi
+          cat << 'EOF' > gradle.properties
+          android.useAndroidX=true
+          android.enableJetifier=true
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          EOF
 
-      - name: Configure TV Manifest, Gradle & Native LibVLC Player
-        run: |
-          cat << 'EOF' > android/app/src/main/AndroidManifest.xml
+          cat << EOF > app/build.gradle
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.jjmovies.tv'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "com.jjmovies.tv"
+                  minSdk 21
+                  targetSdk 34
+                  versionCode ${VER_CODE}
+                  versionName "${VER_NAME}"
+                  ndk {
+                      abiFilters "armeabi-v7a", "arm64-v8a"
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+
+              packaging {
+                  jniLibs {
+                      pickFirsts.add("**/*.so")
+                  }
+              }
+          }
+
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation('org.videolan.android:libvlc-all:3.6.0') {
+                  exclude group: 'androidx.legacy', module: 'legacy-support-v4'
+              }
+              implementation 'androidx.legacy:legacy-support-v4:1.0.0'
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/res/drawable/ic_launcher_bg.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#080D18" />
+          </shape>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/drawable/ic_launcher_fg.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#E50914"
+                  android:pathData="M24,24 h60 a12,12 0 0 1 12,12 v36 a12,12 0 0 1 -12,12 h-60 a12,12 0 0 1 -12,-12 v-36 a12,12 0 0 1 12,-12 z" />
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:pathData="M43,36 h7 v24 c0,6 -4,10 -10,10 c-5,0 -8,-3 -9,-7 l6,-2 c0.5,2 1.5,3 3,3 c2,0 3,-1.5 3,-4 z M67,36 h7 v24 c0,6 -4,10 -10,10 c-5,0 -8,-3 -9,-7 l6,-2 c0.5,2 1.5,3 3,3 c2,0 3,-1.5 3,-4 z" />
+          </vector>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@drawable/ic_launcher_bg" />
+              <foreground android:drawable="@drawable/ic_launcher_fg" />
+          </adaptive-icon>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/drawable/ic_vlc_play.xml
+          <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="28dp" android:height="28dp" android:viewportWidth="24" android:viewportHeight="24">
+              <path android:fillColor="#FFFFFF" android:pathData="M8,5v14l11,-7z"/>
+          </vector>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/drawable/ic_vlc_pause.xml
+          <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="28dp" android:height="28dp" android:viewportWidth="24" android:viewportHeight="24">
+              <path android:fillColor="#FFFFFF" android:pathData="M6,19h4L10,5L6,5v14zM14,5v14h4L18,5h-4z"/>
+          </vector>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/drawable/ic_vlc_back.xml
+          <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+              <path android:fillColor="#FFFFFF" android:pathData="M20,11H7.83l5.59,-5.59L12,4l-8,8 8,8 1.41,-1.41L7.83,13H20v-2z"/>
+          </vector>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/drawable/ic_vlc_tracks.xml
+          <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+              <path android:fillColor="#FFFFFF" android:pathData="M20,4H4c-1.1,0 -2,0.9 -2,2v12c0,1.1 0.9,2 2,2h16c1.1,0 2,-0.9 2,-2V6c0,-1.1 -0.9,-2 -2,-2zM4,12h4v2H4v-2zm10,6H4v-2h10v2zm6,0h-4v-2h4v2zm0,-4H10v-2h10v2z"/>
+          </vector>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/drawable/ic_vlc_aspect.xml
+          <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+              <path android:fillColor="#FFFFFF" android:pathData="M19,12h-2v3h-3v2h5v-5zM7,9h3V7H5v5h2V9zm14,-6H3c-1.1,0 -2,0.9 -2,2v14c0,1.1 0.9,2 2,2h18c1.1,0 2,-0.9 2,-2V5c0,-1.1 -0.9,-2 -2,-2zm0,16.01H3V4.99h18v14.02z"/>
+          </vector>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/layout/activity_vlc_player.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:id="@+id/vlc_root"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="#000000">
+
+              <org.videolan.libvlc.util.VLCVideoLayout
+                  android:id="@+id/vlc_video_layout"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent" />
+
+              <ProgressBar
+                  android:id="@+id/vlc_loading"
+                  android:layout_width="54dp"
+                  android:layout_height="54dp"
+                  android:layout_centerInParent="true"
+                  android:indeterminateTint="#E50914" />
+
+              <RelativeLayout
+                  android:id="@+id/controls_overlay"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"
+                  android:background="#66000000"
+                  android:padding="24dp">
+
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_alignParentTop="true"
+                      android:gravity="center_vertical"
+                      android:orientation="horizontal">
+
+                      <ImageButton
+                          android:id="@+id/btn_back"
+                          android:layout_width="44dp"
+                          android:layout_height="44dp"
+                          android:background="?android:attr/selectableItemBackgroundBorderless"
+                          android:focusable="true"
+                          android:src="@drawable/ic_vlc_back" />
+
+                      <TextView
+                          android:id="@+id/tv_video_title"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="12dp"
+                          android:layout_weight="1"
+                          android:ellipsize="end"
+                          android:singleLine="true"
+                          android:text="JJ Movies TV"
+                          android:textColor="#FFFFFF"
+                          android:textSize="19sp"
+                          android:textStyle="bold" />
+
+                      <ImageButton
+                          android:id="@+id/btn_tracks"
+                          android:layout_width="44dp"
+                          android:layout_height="44dp"
+                          android:layout_marginEnd="8dp"
+                          android:background="?android:attr/selectableItemBackgroundBorderless"
+                          android:focusable="true"
+                          android:src="@drawable/ic_vlc_tracks" />
+
+                      <ImageButton
+                          android:id="@+id/btn_aspect"
+                          android:layout_width="44dp"
+                          android:layout_height="44dp"
+                          android:background="?android:attr/selectableItemBackgroundBorderless"
+                          android:focusable="true"
+                          android:src="@drawable/ic_vlc_aspect" />
+                  </LinearLayout>
+
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_alignParentBottom="true"
+                      android:orientation="vertical">
+
+                      <LinearLayout
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:gravity="center_vertical"
+                          android:orientation="horizontal">
+
+                          <TextView
+                              android:id="@+id/tv_current_time"
+                              android:layout_width="wrap_content"
+                              android:layout_height="wrap_content"
+                              android:text="0:00"
+                              android:textColor="#FFFFFF"
+                              android:textSize="13sp" />
+
+                          <SeekBar
+                              android:id="@+id/vlc_seekbar"
+                              android:layout_width="0dp"
+                              android:layout_height="wrap_content"
+                              android:layout_marginHorizontal="12dp"
+                              android:layout_weight="1"
+                              android:focusable="true"
+                              android:progressTint="#E50914"
+                              android:thumbTint="#FFFFFF" />
+
+                          <TextView
+                              android:id="@+id/tv_total_time"
+                              android:layout_width="wrap_content"
+                              android:layout_height="wrap_content"
+                              android:text="0:00"
+                              android:textColor="#CBD5E1"
+                              android:textSize="13sp" />
+                      </LinearLayout>
+
+                      <LinearLayout
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="10dp"
+                          android:gravity="center"
+                          android:orientation="horizontal">
+
+                          <ImageButton
+                              android:id="@+id/btn_play_pause"
+                              android:layout_width="54dp"
+                              android:layout_height="54dp"
+                              android:background="@drawable/ic_launcher_bg"
+                              android:focusable="true"
+                              android:src="@drawable/ic_vlc_pause" />
+                      </LinearLayout>
+                  </LinearLayout>
+              </RelativeLayout>
+          </RelativeLayout>
+          EOF
+
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -157,20 +332,19 @@ jobs:
               <application
                   android:allowBackup="true"
                   android:banner="@mipmap/ic_launcher"
-                  android:icon="@mipmap/ic_launcher"
-                  android:label="@string/app_name"
-                  android:roundIcon="@mipmap/ic_launcher_round"
-                  android:supportsRtl="true"
-                  android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
                   android:hardwareAccelerated="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="JJ Movies TV"
+                  android:roundIcon="@mipmap/ic_launcher"
+                  android:theme="@style/Theme.AppCompat.NoActionBar"
                   android:usesCleartextTraffic="true">
 
                   <activity
                       android:name=".MainActivity"
+                      android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|screenLayout|uiMode"
                       android:exported="true"
                       android:launchMode="singleTask"
-                      android:screenOrientation="landscape"
-                      android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|screenLayout|uiMode">
+                      android:screenOrientation="landscape">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -180,33 +354,36 @@ jobs:
 
                   <activity
                       android:name=".VlcPlayerActivity"
+                      android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|screenLayout|uiMode"
                       android:exported="false"
-                      android:screenOrientation="landscape"
-                      android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|screenLayout|uiMode" />
+                      android:screenOrientation="landscape" />
 
               </application>
           </manifest>
           EOF
 
-          PKG_DIR="android/app/src/main/java/com/jjmovies/tv"
-          mkdir -p "$PKG_DIR"
-
-          cat << 'EOF' > "$PKG_DIR/MainActivity.java"
+          cat << 'EOF' > app/src/main/java/com/jjmovies/tv/MainActivity.java
           package com.jjmovies.tv;
 
-          import android.app.Activity;
           import android.content.Intent;
           import android.graphics.Color;
           import android.os.Bundle;
+          import android.util.Base64;
           import android.view.KeyEvent;
+          import android.view.View;
           import android.view.WindowManager;
           import android.webkit.JavascriptInterface;
           import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceError;
+          import android.webkit.WebResourceRequest;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
+          import androidx.appcompat.app.AppCompatActivity;
+          import java.io.InputStream;
 
-          public class MainActivity extends Activity {
+          public class MainActivity extends AppCompatActivity {
+
               private WebView webView;
               private static final String SITE_URL = "https://jj-movies.pages.dev/?tv=1";
 
@@ -221,8 +398,8 @@ jobs:
                       if (url == null || url.trim().isEmpty()) return;
                       runOnUiThread(() -> {
                           Intent intent = new Intent(MainActivity.this, VlcPlayerActivity.class);
-                          intent.putExtra("VIDEO_URL", url.trim());
-                          intent.putExtra("VIDEO_TITLE", title != null ? title : "JJ Movies TV");
+                          intent.putExtra(VlcPlayerActivity.EXTRA_VIDEO_URL, url.trim());
+                          intent.putExtra(VlcPlayerActivity.EXTRA_VIDEO_TITLE, title != null ? title : "JJ Movies TV");
                           startActivity(intent);
                       });
                   }
@@ -237,10 +414,22 @@ jobs:
                   }
               }
 
+              private void hideSystemUi() {
+                  getWindow().getDecorView().setSystemUiVisibility(
+                      View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                      | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                      | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                      | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                      | View.SYSTEM_UI_FLAG_FULLSCREEN
+                      | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                  );
+              }
+
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
                   getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                  hideSystemUi();
 
                   webView = new WebView(this);
                   webView.setBackgroundColor(Color.BLACK);
@@ -263,7 +452,19 @@ jobs:
                       @Override
                       public void onPageFinished(WebView view, String url) {
                           super.onPageFinished(view, url);
-                          injectTvNavigation();
+                          injectLocalTvAssets();
+                      }
+
+                      @Override
+                      public void onReceivedError(WebView view, WebResourceRequest req, WebResourceError err) {
+                          if (req != null && req.isForMainFrame()) {
+                              String offlineHtml = "<html><body style='background:#000;color:#fff;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;text-align:center;'>"
+                                  + "<h2 style='color:#e50914;'>No Internet Connection</h2>"
+                                  + "<p style='color:#94a3b8;'>Check your Wi-Fi or Ethernet and press OK to retry.</p>"
+                                  + "<button autofocus onclick=\"location.href='" + SITE_URL + "'\" style='margin-top:16px;padding:12px 28px;background:#e50914;color:#fff;border:0;border-radius:8px;font-weight:bold;font-size:16px;'>Retry</button>"
+                                  + "</body></html>";
+                              view.loadDataWithBaseURL(null, offlineHtml, "text/html", "UTF-8", null);
+                          }
                       }
                   });
 
@@ -271,218 +472,406 @@ jobs:
                   webView.loadUrl(SITE_URL);
               }
 
-              private void injectTvNavigation() {
-                  String js = "(function(){"
-                      + "if(window.__jjTvInit) return; window.__jjTvInit = true;"
-                      + "const style = document.createElement('style');"
-                      + "style.innerHTML = `"
-                      + "  *:focus, .tv-focus { outline: 3px solid #00f0ff !important; box-shadow: 0 0 18px #00f0ff !important; transform: scale(1.04); transition: transform 0.15s ease; z-index: 9999; }"
-                      + "  body { cursor: none; }"
-                      + "`;"
-                      + "document.head.appendChild(style);"
-                      + "function hookVideos(){"
-                      + "  document.querySelectorAll('video').forEach(v => {"
-                      + "    if(v.__vlcHooked) return; v.__vlcHooked = true;"
-                      + "    v.addEventListener('play', () => {"
-                      + "      const src = v.currentSrc || v.src;"
-                      + "      if(src && window.AndroidVlc){ v.pause(); window.AndroidVlc.playVideo(src, document.title || 'JJ Movies TV'); }"
-                      + "    });"
-                      + "  });"
-                      + "}"
-                      + "function makeFocusable(){"
-                      + "  document.querySelectorAll('a, button, input, [onclick], .movie-card, .card').forEach(el => {"
-                      + "    if(!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');"
-                      + "  });"
-                      + "  hookVideos();"
-                      + "}"
-                      + "makeFocusable();"
-                      + "new MutationObserver(makeFocusable).observe(document.body, {childList:true, subtree:true});"
-                      + "document.addEventListener('keydown', function(e){"
-                      + "  const focusables = Array.from(document.querySelectorAll('[tabindex=\"0\"], a, button, input')).filter(el => el.offsetParent !== null);"
-                      + "  if(!focusables.length) return;"
-                      + "  let curr = document.activeElement;"
-                      + "  if(!focusables.includes(curr)){ focusables[0].focus(); return; }"
-                      + "  const rect = curr.getBoundingClientRect();"
-                      + "  let best = null, bestDist = Infinity;"
-                      + "  const dir = e.key;"
-                      + "  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(dir)){"
-                      + "    e.preventDefault();"
-                      + "    focusables.forEach(el => {"
-                      + "      if(el === curr) return;"
-                      + "      const r = el.getBoundingClientRect();"
-                      + "      const dx = (r.left + r.width/2) - (rect.left + rect.width/2);"
-                      + "      const dy = (r.top + r.height/2) - (rect.top + rect.height/2);"
-                      + "      if(dir==='ArrowRight' && dx <= 10) return;"
-                      + "      if(dir==='ArrowLeft' && dx >= -10) return;"
-                      + "      if(dir==='ArrowDown' && dy <= 10) return;"
-                      + "      if(dir==='ArrowUp' && dy >= -10) return;"
-                      + "      const dist = (dir==='ArrowLeft'||dir==='ArrowRight') ? Math.abs(dx) + Math.abs(dy)*3 : Math.abs(dy) + Math.abs(dx)*3;"
-                      + "      if(dist < bestDist){ bestDist = dist; best = el; }"
-                      + "    });"
-                      + "    if(best){ best.focus(); best.scrollIntoView({behavior:'smooth', block:'center', inline:'center'}); }"
-                      + "  } else if(dir === 'Enter'){"
-                      + "    curr.click();"
-                      + "  }"
-                      + "});"
+              private String readAssetBase64(String fileName) {
+                  try (InputStream is = getAssets().open(fileName)) {
+                      byte[] buf = new byte[is.available()];
+                      int read = is.read(buf);
+                      if (read > 0) {
+                          return Base64.encodeToString(buf, 0, read, Base64.NO_WRAP);
+                      }
+                  } catch (Exception ignored) {}
+                  return "";
+              }
+
+              private void injectLocalTvAssets() {
+                  String cssB64 = readAssetBase64("tv.css");
+                  String jsB64 = readAssetBase64("tv.js");
+                  if (cssB64.isEmpty() || jsB64.isEmpty()) return;
+
+                  String loader = "(function(){"
+                      + "if(window.__JJ_TV_UI_LOADED) return;"
+                      + "function b64Decode(b){return new TextDecoder().decode(Uint8Array.from(atob(b),function(c){return c.charCodeAt(0);}));}"
+                      + "var st=document.createElement('style');st.textContent=b64Decode('" + cssB64 + "');document.head.appendChild(st);"
+                      + "var sc=document.createElement('script');sc.textContent=b64Decode('" + jsB64 + "');document.body.appendChild(sc);"
                       + "})();";
-                  webView.evaluateJavascript(js, null);
+                  webView.evaluateJavascript(loader, null);
               }
 
               @Override
               public boolean onKeyDown(int keyCode, KeyEvent event) {
-                  if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) {
-                      webView.goBack();
+                  if (keyCode == KeyEvent.KEYCODE_BACK) {
+                      webView.evaluateJavascript("window.handleTvBack ? window.handleTvBack() : 'exit'", val -> {
+                          if (val == null || val.contains("exit")) {
+                              finish();
+                          }
+                      });
                       return true;
                   }
                   return super.onKeyDown(keyCode, event);
               }
+
+              @Override
+              protected void onResume() {
+                  super.onResume();
+                  hideSystemUi();
+              }
           }
           EOF
 
-          cat << 'EOF' > "$PKG_DIR/VlcPlayerActivity.java"
+          cat << 'EOF' > app/src/main/java/com/jjmovies/tv/VlcPlayerActivity.java
           package com.jjmovies.tv;
 
-          import android.app.Activity;
+          import android.app.AlertDialog;
           import android.net.Uri;
           import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.Looper;
           import android.view.KeyEvent;
+          import android.view.View;
           import android.view.WindowManager;
+          import android.widget.ImageButton;
+          import android.widget.ProgressBar;
+          import android.widget.RelativeLayout;
+          import android.widget.SeekBar;
+          import android.widget.TextView;
           import android.widget.Toast;
-
+          import androidx.appcompat.app.AppCompatActivity;
           import org.videolan.libvlc.LibVLC;
           import org.videolan.libvlc.Media;
           import org.videolan.libvlc.MediaPlayer;
           import org.videolan.libvlc.util.VLCVideoLayout;
-
           import java.util.ArrayList;
+          import java.util.Locale;
 
-          public class VlcPlayerActivity extends Activity {
+          public class VlcPlayerActivity extends AppCompatActivity {
+
+              public static final String EXTRA_VIDEO_URL = "video_url";
+              public static final String EXTRA_VIDEO_TITLE = "video_title";
+
               private LibVLC libVLC;
               private MediaPlayer mediaPlayer;
               private VLCVideoLayout videoLayout;
+              private RelativeLayout controlsOverlay;
+              private ProgressBar loadingSpinner;
+              private SeekBar seekBar;
+              private TextView tvCurrentTime, tvTotalTime, tvTitle;
+              private ImageButton btnPlayPause;
+
+              private final Handler handler = new Handler(Looper.getMainLooper());
+              private boolean isUserSeeking = false;
+              private boolean controlsVisible = true;
+              private int aspectMode = 0;
+
+              private final MediaPlayer.ScaleType[] scaleTypes = {
+                  MediaPlayer.ScaleType.SURFACE_BEST_FIT,
+                  MediaPlayer.ScaleType.SURFACE_FILL,
+                  MediaPlayer.ScaleType.SURFACE_FIT_SCREEN,
+                  MediaPlayer.ScaleType.SURFACE_16_9
+              };
+              private final String[] scaleNames = { "Best Fit", "Fill Screen", "Zoom / Crop", "16:9" };
+
+              private final Runnable hideControlsRunnable = () -> {
+                  if (controlsOverlay != null && mediaPlayer != null && mediaPlayer.isPlaying()) {
+                      controlsOverlay.setVisibility(View.GONE);
+                      controlsVisible = false;
+                      hideSystemUi();
+                  }
+              };
+
+              private final Runnable progressUpdater = new Runnable() {
+                  @Override
+                  public void run() {
+                      if (mediaPlayer != null && !isUserSeeking) {
+                          long total = mediaPlayer.getLength();
+                          long current = mediaPlayer.getTime();
+                          if (total > 0) {
+                              seekBar.setMax((int) total);
+                              seekBar.setProgress((int) Math.max(0, current));
+                              tvCurrentTime.setText(formatTime(current));
+                              tvTotalTime.setText(formatTime(total));
+                          }
+                      }
+                      handler.postDelayed(this, 500);
+                  }
+              };
+
+              private void hideSystemUi() {
+                  getWindow().getDecorView().setSystemUiVisibility(
+                      View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                      | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                      | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                      | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                      | View.SYSTEM_UI_FLAG_FULLSCREEN
+                      | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                  );
+              }
+
+              private void showControls() {
+                  if (controlsOverlay != null) {
+                      controlsOverlay.setVisibility(View.VISIBLE);
+                      controlsVisible = true;
+                  }
+                  scheduleHideControls();
+              }
+
+              private void scheduleHideControls() {
+                  handler.removeCallbacks(hideControlsRunnable);
+                  handler.postDelayed(hideControlsRunnable, 4500);
+              }
+
+              private String formatTime(long ms) {
+                  if (ms <= 0) return "0:00";
+                  long totalSec = ms / 1000;
+                  long hours = totalSec / 3600;
+                  long mins = (totalSec % 3600) / 60;
+                  long secs = totalSec % 60;
+                  if (hours > 0) {
+                      return String.format(Locale.US, "%d:%02d:%02d", hours, mins, secs);
+                  }
+                  return String.format(Locale.US, "%d:%02d", mins, secs);
+              }
 
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
                   getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                  hideSystemUi();
+                  setContentView(R.layout.activity_vlc_player);
 
-                  videoLayout = new VLCVideoLayout(this);
-                  setContentView(videoLayout);
-
-                  String videoUrl = getIntent().getStringExtra("VIDEO_URL");
-                  if (videoUrl == null || videoUrl.isEmpty()) {
-                      Toast.makeText(this, "No video URL found", Toast.LENGTH_SHORT).show();
+                  String videoUrl = getIntent().getStringExtra(EXTRA_VIDEO_URL);
+                  String videoTitle = getIntent().getStringExtra(EXTRA_VIDEO_TITLE);
+                  if (videoUrl == null || videoUrl.trim().isEmpty()) {
+                      Toast.makeText(this, "Invalid video URL", Toast.LENGTH_SHORT).show();
                       finish();
                       return;
                   }
 
+                  videoLayout = findViewById(R.id.vlc_video_layout);
+                  controlsOverlay = findViewById(R.id.controls_overlay);
+                  loadingSpinner = findViewById(R.id.vlc_loading);
+                  seekBar = findViewById(R.id.vlc_seekbar);
+                  tvCurrentTime = findViewById(R.id.tv_current_time);
+                  tvTotalTime = findViewById(R.id.tv_total_time);
+                  tvTitle = findViewById(R.id.tv_video_title);
+                  btnPlayPause = findViewById(R.id.btn_play_pause);
+
+                  ImageButton btnBack = findViewById(R.id.btn_back);
+                  ImageButton btnTracks = findViewById(R.id.btn_tracks);
+                  ImageButton btnAspect = findViewById(R.id.btn_aspect);
+
+                  if (tvTitle != null && videoTitle != null && !videoTitle.trim().isEmpty()) {
+                      tvTitle.setText(videoTitle.trim());
+                  }
+
                   ArrayList<String> options = new ArrayList<>();
-                  options.add("--network-caching=1500");
-                  options.add("--aout=audiotrack");
-                  options.add("--avcodec-hw=any");
+                  options.add("--audio-time-stretch");
+                  options.add("--network-caching=3000");
+                  options.add("--file-caching=1500");
+                  options.add("--http-reconnect");
 
                   libVLC = new LibVLC(this, options);
                   mediaPlayer = new MediaPlayer(libVLC);
                   mediaPlayer.attachViews(videoLayout, null, false, false);
 
-                  Media media = new Media(libVLC, Uri.parse(videoUrl));
-                  media.setHWDecoderEnabled(true, false);
+                  mediaPlayer.setEventListener(event -> runOnUiThread(() -> {
+                      if (event.type == MediaPlayer.Event.Playing) {
+                          loadingSpinner.setVisibility(View.GONE);
+                          btnPlayPause.setImageResource(R.drawable.ic_vlc_pause);
+                          scheduleHideControls();
+                      } else if (event.type == MediaPlayer.Event.Paused) {
+                          btnPlayPause.setImageResource(R.drawable.ic_vlc_play);
+                          showControls();
+                      } else if (event.type == MediaPlayer.Event.Buffering) {
+                          loadingSpinner.setVisibility(event.getBuffering() >= 100f ? View.GONE : View.VISIBLE);
+                      } else if (event.type == MediaPlayer.Event.EncounteredError) {
+                          loadingSpinner.setVisibility(View.GONE);
+                          Toast.makeText(this, "Playback error. Try Server 2.", Toast.LENGTH_LONG).show();
+                      }
+                  }));
+
+                  String safeUrl = videoUrl.trim().replace(" ", "%20").replace("(", "%28").replace(")", "%29");
+                  Media media = new Media(libVLC, Uri.parse(safeUrl));
+                  media.setHWDecoderEnabled(true, true);
+                  media.addOption(":network-caching=3000");
+                  media.addOption(":http-reconnect");
                   mediaPlayer.setMedia(media);
                   media.release();
+
                   mediaPlayer.play();
+                  handler.post(progressUpdater);
+                  scheduleHideControls();
+
+                  if (btnBack != null) btnBack.setOnClickListener(v -> finish());
+                  if (btnTracks != null) btnTracks.setOnClickListener(v -> { showControls(); showTracksMenu(); });
+                  if (btnPlayPause != null) {
+                      btnPlayPause.setOnClickListener(v -> { togglePlayPause(); scheduleHideControls(); });
+                      btnPlayPause.requestFocus();
+                  }
+                  if (btnAspect != null) {
+                      btnAspect.setOnClickListener(v -> {
+                          aspectMode = (aspectMode + 1) % scaleTypes.length;
+                          mediaPlayer.setVideoScale(scaleTypes[aspectMode]);
+                          Toast.makeText(this, scaleNames[aspectMode], Toast.LENGTH_SHORT).show();
+                          scheduleHideControls();
+                      });
+                  }
+
+                  seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                      @Override
+                      public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                          if (fromUser) tvCurrentTime.setText(formatTime(progress));
+                      }
+                      @Override
+                      public void onStartTrackingTouch(SeekBar sb) {
+                          isUserSeeking = true;
+                          handler.removeCallbacks(hideControlsRunnable);
+                      }
+                      @Override
+                      public void onStopTrackingTouch(SeekBar sb) {
+                          isUserSeeking = false;
+                          if (mediaPlayer != null) mediaPlayer.setTime(sb.getProgress());
+                          scheduleHideControls();
+                      }
+                  });
+              }
+
+              private void togglePlayPause() {
+                  if (mediaPlayer == null) return;
+                  if (mediaPlayer.isPlaying()) {
+                      mediaPlayer.pause();
+                      btnPlayPause.setImageResource(R.drawable.ic_vlc_play);
+                  } else {
+                      mediaPlayer.play();
+                      btnPlayPause.setImageResource(R.drawable.ic_vlc_pause);
+                  }
+              }
+
+              private void seekBy(long deltaMs) {
+                  if (mediaPlayer == null) return;
+                  long target = mediaPlayer.getTime() + deltaMs;
+                  mediaPlayer.setTime(Math.max(0L, target));
+              }
+
+              private void showTracksMenu() {
+                  String[] opts = { "Audio Track (Dolby / Language)", "Subtitles" };
+                  new AlertDialog.Builder(this)
+                      .setTitle("Audio & Subtitles")
+                      .setItems(opts, (d, which) -> {
+                          if (which == 0) showAudioTrackDialog();
+                          else showSubtitleTrackDialog();
+                      })
+                      .show();
+              }
+
+              private void showAudioTrackDialog() {
+                  if (mediaPlayer == null) return;
+                  MediaPlayer.TrackDescription[] tracks = mediaPlayer.getAudioTracks();
+                  if (tracks == null || tracks.length == 0) {
+                      Toast.makeText(this, "Audio tracks loading...", Toast.LENGTH_SHORT).show();
+                      return;
+                  }
+                  String[] names = new String[tracks.length];
+                  int currentId = mediaPlayer.getAudioTrack();
+                  int checkedIndex = 0;
+                  for (int i = 0; i < tracks.length; i++) {
+                      names[i] = tracks[i].name != null ? tracks[i].name : ("Audio Track " + i);
+                      if (tracks[i].id == currentId) checkedIndex = i;
+                  }
+                  new AlertDialog.Builder(this)
+                      .setTitle("Select Audio Track")
+                      .setSingleChoiceItems(names, checkedIndex, (dialog, which) -> {
+                          mediaPlayer.setAudioTrack(tracks[which].id);
+                          Toast.makeText(this, "Audio: " + names[which], Toast.LENGTH_SHORT).show();
+                          dialog.dismiss();
+                      })
+                      .show();
+              }
+
+              private void showSubtitleTrackDialog() {
+                  if (mediaPlayer == null) return;
+                  MediaPlayer.TrackDescription[] tracks = mediaPlayer.getSpuTracks();
+                  if (tracks == null || tracks.length == 0) {
+                      Toast.makeText(this, "No subtitles available", Toast.LENGTH_SHORT).show();
+                      return;
+                  }
+                  String[] names = new String[tracks.length];
+                  int currentId = mediaPlayer.getSpuTrack();
+                  int checkedIndex = 0;
+                  for (int i = 0; i < tracks.length; i++) {
+                      names[i] = tracks[i].name != null ? tracks[i].name : ("Subtitle " + i);
+                      if (tracks[i].id == currentId) checkedIndex = i;
+                  }
+                  new AlertDialog.Builder(this)
+                      .setTitle("Select Subtitles")
+                      .setSingleChoiceItems(names, checkedIndex, (dialog, which) -> {
+                          mediaPlayer.setSpuTrack(tracks[which].id);
+                          Toast.makeText(this, "Subtitle: " + names[which], Toast.LENGTH_SHORT).show();
+                          dialog.dismiss();
+                      })
+                      .show();
               }
 
               @Override
               public boolean onKeyDown(int keyCode, KeyEvent event) {
-                  if (mediaPlayer == null) return super.onKeyDown(keyCode, event);
-
-                  switch (keyCode) {
-                      case KeyEvent.KEYCODE_DPAD_CENTER:
-                      case KeyEvent.KEYCODE_ENTER:
-                      case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
-                          if (mediaPlayer.isPlaying()) {
-                              mediaPlayer.pause();
-                              Toast.makeText(this, "Paused", Toast.LENGTH_SHORT).show();
-                          } else {
-                              mediaPlayer.play();
-                              Toast.makeText(this, "Playing", Toast.LENGTH_SHORT).show();
-                          }
+                  if (mediaPlayer != null) {
+                      if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
+                          togglePlayPause();
+                          showControls();
                           return true;
-
-                      case KeyEvent.KEYCODE_DPAD_RIGHT:
-                      case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
-                          mediaPlayer.setTime(mediaPlayer.getTime() + 10000);
+                      }
+                      if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
+                          seekBy(10000L);
                           Toast.makeText(this, "+10s", Toast.LENGTH_SHORT).show();
+                          showControls();
                           return true;
-
-                      case KeyEvent.KEYCODE_DPAD_LEFT:
-                      case KeyEvent.KEYCODE_MEDIA_REWIND:
-                          mediaPlayer.setTime(Math.max(0, mediaPlayer.getTime() - 10000));
+                      }
+                      if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND) {
+                          seekBy(-10000L);
                           Toast.makeText(this, "-10s", Toast.LENGTH_SHORT).show();
+                          showControls();
                           return true;
-
-                      case KeyEvent.KEYCODE_DPAD_UP:
-                      case KeyEvent.KEYCODE_MENU:
-                          switchAudioTrack();
+                      }
+                      if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_MENU) {
+                          showControls();
+                          showTracksMenu();
                           return true;
-
-                      case KeyEvent.KEYCODE_BACK:
-                          finish();
+                      }
+                      if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                          showControls();
                           return true;
-                  }
-                  return super.onKeyDown(keyCode, event);
-              }
-
-              private void switchAudioTrack() {
-                  MediaPlayer.TrackDescription[] tracks = mediaPlayer.getAudioTracks();
-                  if (tracks == null || tracks.length <= 1) {
-                      Toast.makeText(this, "Single audio track", Toast.LENGTH_SHORT).show();
-                      return;
-                  }
-                  int currentId = mediaPlayer.getAudioTrack();
-                  int nextIndex = 0;
-                  for (int i = 0; i < tracks.length; i++) {
-                      if (tracks[i].id == currentId) {
-                          nextIndex = (i + 1) % tracks.length;
-                          break;
                       }
                   }
-                  mediaPlayer.setAudioTrack(tracks[nextIndex].id);
-                  Toast.makeText(this, "Audio: " + tracks[nextIndex].name, Toast.LENGTH_SHORT).show();
+                  return super.onKeyDown(keyCode, event);
               }
 
               @Override
               protected void onStop() {
                   super.onStop();
-                  if (mediaPlayer != null) {
-                      mediaPlayer.stop();
-                      mediaPlayer.detachViews();
-                  }
+                  if (mediaPlayer != null) mediaPlayer.stop();
               }
 
               @Override
               protected void onDestroy() {
                   super.onDestroy();
-                  if (mediaPlayer != null) mediaPlayer.release();
-                  if (libVLC != null) libVLC.release();
+                  handler.removeCallbacksAndMessages(null);
+                  if (mediaPlayer != null) {
+                      mediaPlayer.detachViews();
+                      mediaPlayer.release();
+                      mediaPlayer = null;
+                  }
+                  if (libVLC != null) {
+                      libVLC.release();
+                      libVLC = null;
+                  }
               }
           }
           EOF
 
-          GRADLE="android/app/build.gradle"
-          if [ -f "$GRADLE" ]; then
-            sed -i "s/versionCode [0-9]*/versionCode ${VER_CODE}/" "$GRADLE"
-            sed -i "s/versionName \"[^\"]*\"/versionName \"${VER_NAME}\"/" "$GRADLE"
-          fi
-
-      - name: Build Debug TV APK
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleDebug --console=plain || ./gradlew assembleDebug --offline --console=plain
+      - name: Build JJ Movies TV Debug APK
+        run: gradle assembleDebug --no-daemon --console=plain
 
       - name: Upload TV APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: jj-movies-tv-v${{ github.event.inputs.app_version || '1.0.0' }}
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
