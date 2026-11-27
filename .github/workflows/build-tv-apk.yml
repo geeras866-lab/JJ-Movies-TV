@@ -172,6 +172,12 @@ jobs:
                   </activity>
 
                   <activity
+                      android:name=".EmbedPlayerActivity"
+                      android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|screenLayout|uiMode"
+                      android:exported="false"
+                      android:screenOrientation="landscape" />
+
+                  <activity
                       android:name=".VlcPlayerActivity"
                       android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|screenLayout|uiMode"
                       android:exported="false"
@@ -468,7 +474,6 @@ jobs:
                   </LinearLayout>
               </RelativeLayout>
 
-              <!-- 2-Column Audio & Subtitles Overlay Card -->
               <RelativeLayout
                   android:id="@+id/tracks_overlay"
                   android:layout_width="match_parent"
@@ -489,7 +494,6 @@ jobs:
                       android:orientation="horizontal"
                       android:padding="22dp">
 
-                      <!-- Left Column: Audio -->
                       <LinearLayout
                           android:layout_width="0dp"
                           android:layout_height="wrap_content"
@@ -519,13 +523,11 @@ jobs:
                           </ScrollView>
                       </LinearLayout>
 
-                      <!-- Center Divider -->
                       <View
                           android:layout_width="1dp"
                           android:layout_height="match_parent"
                           android:background="#2A3142" />
 
-                      <!-- Right Column: Subtitles + Size Slider -->
                       <LinearLayout
                           android:layout_width="0dp"
                           android:layout_height="wrap_content"
@@ -595,8 +597,130 @@ jobs:
           </RelativeLayout>
           EOF
 
-      - name: 3. Setup MainActivity with Embed Ad-Blocker
+      - name: 3. Setup MainActivity & EmbedPlayerActivity
         run: |
+          cat << 'EOF' > app/src/main/java/com/jjmovies/tv/EmbedPlayerActivity.java
+          package com.jjmovies.tv;
+
+          import android.graphics.Color;
+          import android.os.Bundle;
+          import android.view.KeyEvent;
+          import android.view.View;
+          import android.view.WindowManager;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebResourceResponse;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.Toast;
+          import androidx.appcompat.app.AppCompatActivity;
+          import java.io.ByteArrayInputStream;
+          import java.util.Locale;
+
+          public class EmbedPlayerActivity extends AppCompatActivity {
+
+              public static final String EXTRA_EMBED_URL = "embed_url";
+              public static final String EXTRA_EMBED_TITLE = "embed_title";
+
+              private WebView embedWebView;
+
+              private boolean isAdHost(String url) {
+                  if (url == null) return false;
+                  String u = url.toLowerCase(Locale.US);
+                  return u.contains("doubleclick.net")
+                      || u.contains("googlesyndication.com")
+                      || u.contains("popads.net")
+                      || u.contains("popcash.net")
+                      || u.contains("propellerads")
+                      || u.contains("adsterra")
+                      || u.contains("exoclick")
+                      || u.contains("trafficjunky")
+                      || u.contains("juicyads")
+                      || u.contains("clickadu")
+                      || u.contains("hilltopads")
+                      || u.contains("monetag")
+                      || u.contains("acscdn")
+                      || u.contains("histats.com");
+              }
+
+              private void hideSystemUi() {
+                  getWindow().getDecorView().setSystemUiVisibility(
+                      View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                      | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                      | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                      | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                      | View.SYSTEM_UI_FLAG_FULLSCREEN
+                      | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                  );
+              }
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                  hideSystemUi();
+
+                  String embedUrl = getIntent().getStringExtra(EXTRA_EMBED_URL);
+                  if (embedUrl == null || embedUrl.trim().isEmpty()) {
+                      Toast.makeText(this, "Invalid stream URL", Toast.LENGTH_SHORT).show();
+                      finish();
+                      return;
+                  }
+
+                  embedWebView = new WebView(this);
+                  embedWebView.setBackgroundColor(Color.BLACK);
+                  setContentView(embedWebView);
+
+                  WebSettings s = embedWebView.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setMediaPlaybackRequiresUserGesture(false);
+                  s.setLoadWithOverviewMode(true);
+                  s.setUseWideViewPort(true);
+                  s.setSupportMultipleWindows(false);
+                  s.setJavaScriptCanOpenWindowsAutomatically(false);
+                  s.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+
+                  embedWebView.setWebChromeClient(new WebChromeClient());
+                  embedWebView.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                          if (request != null && request.getUrl() != null && isAdHost(request.getUrl().toString())) {
+                              return new WebResourceResponse("text/plain", "UTF-8", new ByteArrayInputStream(new byte[0]));
+                          }
+                          return super.shouldInterceptRequest(view, request);
+                      }
+
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                          if (request != null && request.getUrl() != null && isAdHost(request.getUrl().toString())) {
+                              return true;
+                          }
+                          return false;
+                      }
+                  });
+
+                  embedWebView.loadUrl(embedUrl.trim());
+              }
+
+              @Override
+              public boolean onKeyDown(int keyCode, KeyEvent event) {
+                  if (keyCode == KeyEvent.KEYCODE_BACK) {
+                      finish();
+                      return true;
+                  }
+                  return super.onKeyDown(keyCode, event);
+              }
+
+              @Override
+              protected void onResume() {
+                  super.onResume();
+                  hideSystemUi();
+              }
+          }
+          EOF
+
           cat << 'EOF' > app/src/main/java/com/jjmovies/tv/MainActivity.java
           package com.jjmovies.tv;
 
@@ -611,15 +735,12 @@ jobs:
           import android.webkit.WebChromeClient;
           import android.webkit.WebResourceError;
           import android.webkit.WebResourceRequest;
-          import android.webkit.WebResourceResponse;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
           import androidx.appcompat.app.AppCompatActivity;
-          import java.io.ByteArrayInputStream;
           import java.io.ByteArrayOutputStream;
           import java.io.InputStream;
-          import java.util.Locale;
 
           public class MainActivity extends AppCompatActivity {
 
@@ -640,6 +761,17 @@ jobs:
                           Intent intent = new Intent(MainActivity.this, VlcPlayerActivity.class);
                           intent.putExtra(VlcPlayerActivity.EXTRA_VIDEO_URL, url.trim());
                           intent.putExtra(VlcPlayerActivity.EXTRA_VIDEO_TITLE, title != null ? title : "JJ Movies TV");
+                          startActivity(intent);
+                      });
+                  }
+
+                  @JavascriptInterface
+                  public void openEmbedPlayer(String url, String title) {
+                      if (url == null || url.trim().isEmpty()) return;
+                      runOnUiThread(() -> {
+                          Intent intent = new Intent(MainActivity.this, EmbedPlayerActivity.class);
+                          intent.putExtra(EmbedPlayerActivity.EXTRA_EMBED_URL, url.trim());
+                          intent.putExtra(EmbedPlayerActivity.EXTRA_EMBED_TITLE, title != null ? title : "JJ Movies TV");
                           startActivity(intent);
                       });
                   }
@@ -673,26 +805,6 @@ jobs:
                   );
               }
 
-              private boolean isAdHost(String url) {
-                  if (url == null) return false;
-                  String u = url.toLowerCase(Locale.US);
-                  return u.contains("doubleclick.net")
-                      || u.contains("googlesyndication.com")
-                      || u.contains("popads.net")
-                      || u.contains("popcash.net")
-                      || u.contains("propellerads")
-                      || u.contains("adsterra")
-                      || u.contains("exoclick")
-                      || u.contains("trafficjunky")
-                      || u.contains("juicyads")
-                      || u.contains("clickadu")
-                      || u.contains("hilltopads")
-                      || u.contains("monetag")
-                      || u.contains("acscdn")
-                      || u.contains("histats.com")
-                      || u.contains("yandex.ru/metrika");
-              }
-
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
@@ -709,8 +821,6 @@ jobs:
                   s.setMediaPlaybackRequiresUserGesture(false);
                   s.setLoadWithOverviewMode(true);
                   s.setUseWideViewPort(true);
-                  s.setSupportMultipleWindows(false);
-                  s.setJavaScriptCanOpenWindowsAutomatically(false);
                   s.setUserAgentString("Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 JJTV");
 
                   TvBridge bridge = new TvBridge();
@@ -719,25 +829,6 @@ jobs:
 
                   webView.setWebChromeClient(new WebChromeClient());
                   webView.setWebViewClient(new WebViewClient() {
-                      @Override
-                      public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                          if (request != null && request.getUrl() != null && isAdHost(request.getUrl().toString())) {
-                              return new WebResourceResponse("text/plain", "UTF-8", new ByteArrayInputStream(new byte[0]));
-                          }
-                          return super.shouldInterceptRequest(view, request);
-                      }
-
-                      @Override
-                      public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                          if (request != null && request.getUrl() != null) {
-                              String target = request.getUrl().toString();
-                              if (isAdHost(target) || (!request.isForMainFrame() && !target.contains("filemoon"))) {
-                                  return true;
-                              }
-                          }
-                          return false;
-                      }
-
                       @Override
                       public void onPageFinished(WebView view, String url) {
                           super.onPageFinished(view, url);
@@ -809,8 +900,6 @@ jobs:
           }
           EOF
 
-      - name: 4. Setup Native LibVLC Player with JJ Branded Tracks
-        run: |
           cat << 'EOF' > app/src/main/java/com/jjmovies/tv/VlcPlayerActivity.java
           package com.jjmovies.tv;
 
