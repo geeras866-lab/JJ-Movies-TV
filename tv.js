@@ -39,6 +39,22 @@
     });
   }
 
+  function showTvToast(msg) {
+    var el = document.getElementById("jjTvToast");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "jjTvToast";
+      el.style.cssText = "position:fixed;bottom:34px;left:50%;transform:translateX(-50%);z-index:999998;background:rgba(13,21,38,0.96);border:1.5px solid #ff2450;color:#fff;padding:12px 24px;border-radius:12px;font-size:15px;font-weight:800;box-shadow:0 12px 32px rgba(0,0,0,0.9);pointer-events:none;transition:opacity 0.2s;";
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.opacity = "1";
+    clearTimeout(el._t);
+    el._t = setTimeout(function () {
+      el.style.opacity = "0";
+    }, 2600);
+  }
+
   function isPlayableItem(m) {
     if (!m) return false;
     if (String(m.type || m.content_type || "").toLowerCase() === "series") return true;
@@ -150,6 +166,70 @@
     } catch (e) {}
 
     return fallbackObj;
+  }
+
+  // ---------- Direct Native LibVLC Launcher ----------
+  async function resolveAndPlayInVlc(title, rawStream, backupStream, meta) {
+    var chosen = String(rawStream || "").trim() || String(backupStream || "").trim();
+    if (!chosen) {
+      showTvToast("Stream link not available");
+      return;
+    }
+
+    showTvToast("⚡ Loading in VLC Player...");
+
+    try {
+      var playableUrl = "";
+
+      if (/^https?:\/\//i.test(chosen) && /[?&]sig=/i.test(chosen)) {
+        playableUrl = chosen;
+      } else if (/(?:pixeldrain\.com\/(?:u|api\/file)\/|^([A-Za-z0-9_-]{6,20})$)/i.test(chosen)) {
+        var m = chosen.match(/pixeldrain\.com\/(?:u|api\/file)\/([A-Za-z0-9_-]+)/i);
+        var pid = m ? m[1] : chosen;
+        playableUrl = "https://pixeldrain.com/api/file/" + pid;
+      } else {
+        var workerFile = "";
+        var b2Match = chosen.match(/^https?:\/\/(b2_[a-zA-Z0-9_-]+)\/(.+)$/i);
+        if (b2Match) {
+          workerFile = b2Match[1] + "/" + decodeURIComponent(b2Match[2].split("?")[0]);
+        } else if (/^https?:\/\/[^\/]+\.workers\.dev\//i.test(chosen)) {
+          try {
+            var u = new URL(chosen);
+            workerFile = decodeURIComponent(u.pathname.replace(/^\/+/, ""));
+          } catch (e) {}
+        } else if (!/^https?:\/\//i.test(chosen)) {
+          workerFile = chosen.replace(/^\/+/, "");
+        }
+
+        if (workerFile) {
+          var qp = new URLSearchParams();
+          qp.set("file", workerFile);
+          if (meta && meta.id) qp.set("id", String(meta.id));
+          if (meta && meta.episodeId) qp.set("episode_id", String(meta.episodeId));
+          var tokRes = await fetch("./api/get-token?" + qp.toString(), { cache: "no-store" });
+          if (!tokRes.ok) throw new Error("Token error (" + tokRes.status + ")");
+          var tokData = await tokRes.json();
+          if (!tokData || !tokData.url) throw new Error("Stream URL not found");
+          playableUrl = String(tokData.url).trim();
+        } else {
+          playableUrl = chosen;
+        }
+      }
+
+      if (window.AndroidVlc && typeof window.AndroidVlc.playVideo === "function") {
+        window.AndroidVlc.playVideo(playableUrl, title || "JJ Movies TV");
+      } else if (typeof window.openServerSelection === "function") {
+        window.openServerSelection(title, playableUrl, backupStream, "token", meta);
+      } else {
+        window.location.href = playableUrl;
+      }
+    } catch (err) {
+      if (backupStream && backupStream !== chosen) {
+        resolveAndPlayInVlc(title, backupStream, "", meta);
+      } else {
+        showTvToast("Stream Error: " + (err && err.message ? err.message : "Failed"));
+      }
+    }
   }
 
   function getJjSvgLogo(size) {
@@ -443,10 +523,8 @@
       playBtn.addEventListener("click", function () {
         if (movie.type === "series") {
           openTvDetails(movie);
-        } else if (typeof window.openMoviePlayerById === "function") {
-          window.openMoviePlayerById(movie.id);
         } else {
-          openTvDetails(movie);
+          resolveAndPlayInVlc(movie.title, movie.stream1, movie.stream2, { id: movie.id });
         }
       });
       if (hadPlayFocus || !document.querySelector(".tv-focused")) {
@@ -593,9 +671,7 @@
     var playMain = document.getElementById("jjDetPlayMain");
     if (playMain) {
       playMain.addEventListener("click", function () {
-        if (typeof window.openServerSelection === "function") {
-          window.openServerSelection(movie.title, movie.stream1, movie.stream2, movie.linkType, { id: movie.id });
-        }
+        resolveAndPlayInVlc(movie.title, movie.stream1, movie.stream2, { id: movie.id });
       });
       setTvFocus(playMain);
     }
@@ -603,9 +679,7 @@
     var playS2 = document.getElementById("jjDetPlayS2");
     if (playS2) {
       playS2.addEventListener("click", function () {
-        if (typeof window.openServerSelection === "function") {
-          window.openServerSelection(movie.title, movie.stream2, movie.stream1, movie.linkType, { id: movie.id });
-        }
+        resolveAndPlayInVlc(movie.title, movie.stream2, movie.stream1, { id: movie.id });
       });
     }
 
@@ -683,9 +757,7 @@
             var ep = eps.find(function (x) { return String(x.id) === epBtn.getAttribute("data-epid"); });
             if (!ep) return;
             var label = movie.title + " • S" + activeSeason + " E" + ep.episode_number;
-            if (typeof window.openServerSelection === "function") {
-              window.openServerSelection(label, ep.stream_url_1, ep.stream_url_2, movie.linkType, { id: movie.id, episodeId: ep.id });
-            }
+            resolveAndPlayInVlc(label, ep.stream_url_1, ep.stream_url_2, { id: movie.id, episodeId: ep.id });
           });
         });
       }
