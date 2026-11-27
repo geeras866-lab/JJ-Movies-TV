@@ -104,17 +104,6 @@ jobs:
             npx capacitor-assets generate --android --iconBackgroundColor '#080d18' --splashBackgroundColor '#080d18' || true
           fi
 
-          VARS="android/variables.gradle"
-          if [ -f "$VARS" ]; then
-            sed -i 's/compileSdkVersion = [0-9]*/compileSdkVersion = 35/' "$VARS"
-            sed -i 's/targetSdkVersion = [0-9]*/targetSdkVersion = 35/' "$VARS"
-          fi
-
-          ROOT_GRADLE="android/build.gradle"
-          if [ -f "$ROOT_GRADLE" ]; then
-            sed -i 's/com.android.tools.build:gradle:[0-9.]*/com.android.tools.build:gradle:8.7.2/' "$ROOT_GRADLE"
-          fi
-
           GRADLE="android/app/build.gradle"
           if [ -f "$GRADLE" ]; then
             sed -i "s/applicationId \"[^\"]*\"/applicationId \"com.jjmovies.tv\"/" "$GRADLE"
@@ -529,7 +518,7 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew :capacitor-android:compileDebugJavaWithJavac assembleDebug --console=plain --stacktrace || ./gradlew assembleDebug --offline --console=plain --stacktrace
+          ./gradlew assembleDebug --console=plain || ./gradlew assembleDebug --offline --console=plain
 
       - name: Upload TV APK Artifact
         uses: actions/upload-artifact@v4
