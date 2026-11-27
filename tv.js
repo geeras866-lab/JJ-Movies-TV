@@ -23,6 +23,7 @@
   var tvLastFocusedBeforeEmbed = null;
   var tvTmdbMemoryCache = {};
   var tvIsLaunchingStream = false;
+  var tvLastEnterMs = 0;
 
   try {
     var savedTmdb = localStorage.getItem(TMDB_CACHE_KEY);
@@ -99,6 +100,7 @@
     var cached = tvTmdbMemoryCache[cacheKey];
     if (cached) {
       return {
+        _fetched: Boolean(cached._fetched),
         backdrop: cached.backdrop || fallbackBackdrop,
         poster: fallbackPoster || cached.poster || "",
         overview: movie.description || cached.overview || "",
@@ -106,6 +108,7 @@
       };
     }
     return {
+      _fetched: false,
       backdrop: fallbackBackdrop,
       poster: fallbackPoster,
       overview: movie.description || "",
@@ -166,6 +169,7 @@
       tvTmdbMemoryCache[cacheKey] = entry;
       saveTmdbCache();
       return {
+        _fetched: true,
         backdrop: entry.backdrop,
         poster: fallbackObj.poster || entry.poster || "",
         overview: movie.description || entry.overview || "",
@@ -213,7 +217,7 @@
     }
 
     closeTvEmbedPlayer();
-    tvLastFocusedBeforeEmbed = document.activeElement;
+    tvLastFocusedBeforeEmbed = document.querySelector(".tv-focused") || document.activeElement;
 
     var modal = document.createElement("div");
     modal.id = "jjTvEmbedModal";
@@ -631,7 +635,8 @@
       return '<span class="jj-hero-dot' + (i === idx ? " active" : "") + '"></span>';
     }).join("");
 
-    var curFocusedId = document.activeElement ? document.activeElement.id : "";
+    var curFocused = document.querySelector(".tv-focused");
+    var curFocusedId = curFocused ? curFocused.id : "";
     var hadHeroFocus = (curFocusedId === "jjHeroPlayBtn" || curFocusedId === "jjHeroInfoBtn");
 
     heroEl.innerHTML =
@@ -665,7 +670,7 @@
           resolveAndPlayInVlc(movie.title, movie.stream1, movie.stream2, { id: movie.id });
         }
       });
-      if (takeFocus || hadHeroFocus) {
+      if (takeFocus || (hadHeroFocus && curFocusedId === "jjHeroPlayBtn")) {
         setTvFocus(playBtn);
       }
     }
@@ -842,7 +847,7 @@
   function openTvDetails(movie) {
     var det = document.getElementById("jjTvDetails");
     if (!det) return;
-    tvLastFocusedBeforeDetails = document.activeElement;
+    tvLastFocusedBeforeDetails = document.querySelector(".tv-focused") || document.activeElement;
 
     var cached = getCachedTmdbSync(movie);
     det.classList.add("open");
@@ -964,11 +969,12 @@
     });
   }
 
-  // ---------- Row-Aware Spatial D-Pad Navigation ----------
+  // ---------- Strict Row-by-Row TV Remote Navigation ----------
   function setTvFocus(el) {
     if (!el) return;
-    var prev = document.querySelector(".tv-focused");
-    if (prev && prev !== el) prev.classList.remove("tv-focused");
+    document.querySelectorAll(".tv-focused").forEach(function (prev) {
+      if (prev !== el) prev.classList.remove("tv-focused");
+    });
     el.classList.add("tv-focused");
     try {
       el.focus({ preventScroll: true });
@@ -978,104 +984,171 @@
         var elRight = elLeft + el.offsetWidth;
         var viewLeft = track.scrollLeft;
         var viewRight = viewLeft + track.clientWidth;
-        if (elLeft < viewLeft + 12) {
-          track.scrollLeft = Math.max(0, elLeft - 12);
-        } else if (elRight > viewRight - 12) {
-          track.scrollLeft = Math.max(0, elRight - track.clientWidth + 12);
+        if (elLeft < viewLeft + 16) {
+          track.scrollLeft = Math.max(0, elLeft - 16);
+        } else if (elRight > viewRight - 16) {
+          track.scrollLeft = Math.max(0, elRight - track.clientWidth + 16);
         }
       }
       el.scrollIntoView({ behavior: "auto", block: "nearest", inline: "nearest" });
     } catch (e) {}
   }
 
-  function getActiveFocusPool() {
-    var embedModal = document.getElementById("jjTvEmbedModal");
-    if (embedModal) {
-      return Array.from(embedModal.querySelectorAll("button")).filter(function (el) {
-        return el.offsetParent !== null;
-      });
-    }
-    var det = document.getElementById("jjTvDetails");
-    if (det && det.classList.contains("open")) {
-      return Array.from(det.querySelectorAll("button, a, .jj-tv-card")).filter(function (el) {
-        return el.offsetParent !== null;
-      });
-    }
-    return Array.from(document.querySelectorAll("#jjTvSidebar .jj-tv-nav-item, #jjTvMain button, #jjTvMain input, #jjTvMain .jj-tv-card")).filter(function (el) {
+  function getVisibleItems(container, selector) {
+    if (!container) return [];
+    return Array.from(container.querySelectorAll(selector)).filter(function (el) {
       return el.offsetParent !== null;
     });
   }
 
+  function getStructuredRows(rootEl) {
+    var rows = [];
+    if (rootEl.id === "jjTvDetails") {
+      var act = getVisibleItems(rootEl, ".jj-det-actions button, .jj-det-actions a");
+      if (act.length) rows.push(act);
+      var seas = getVisibleItems(rootEl, ".jj-det-seasons button");
+      if (seas.length) rows.push(seas);
+      var eps = getVisibleItems(rootEl, ".jj-det-ep-grid button");
+      if (eps.length) rows.push(eps);
+      rootEl.querySelectorAll(".jj-tv-row-track").forEach(function (t) {
+        var cards = getVisibleItems(t, ".jj-tv-card");
+        if (cards.length) rows.push(cards);
+      });
+      return rows;
+    }
+
+    var searchPanel = document.getElementById("jjTvSearchPanel");
+    if (searchPanel && searchPanel.classList.contains("open")) {
+      var inp = document.getElementById("jjTvSearchInput");
+      if (inp && inp.offsetParent !== null) rows.push([inp]);
+      var gridCards = getVisibleItems(document.getElementById("jjTvSearchGrid"), ".jj-tv-card");
+      if (gridCards.length) rows.push(gridCards);
+      return rows;
+    }
+
+    var heroBtns = getVisibleItems(document.getElementById("jjTvHero"), ".jj-hero-actions button");
+    if (heroBtns.length) rows.push(heroBtns);
+
+    var catTabs = getVisibleItems(document.getElementById("jjTvRows"), ".jj-det-seasons button");
+    if (catTabs.length) rows.push(catTabs);
+
+    document.querySelectorAll("#jjTvRows .jj-tv-row-track").forEach(function (t) {
+      var cards = getVisibleItems(t, ".jj-tv-card");
+      if (cards.length) rows.push(cards);
+    });
+    return rows;
+  }
+
+  function pickNearestX(targetRow, refX) {
+    var best = targetRow[0];
+    var bestDist = Infinity;
+    for (var i = 0; i < targetRow.length; i++) {
+      var r = targetRow[i].getBoundingClientRect();
+      var cx = r.left + r.width / 2;
+      var d = Math.abs(cx - refX);
+      if (d < bestDist) {
+        bestDist = d;
+        best = targetRow[i];
+      }
+    }
+    return best;
+  }
+
   function navigateDpad(dir) {
-    var pool = getActiveFocusPool();
-    if (!pool.length) return;
-    var cur = document.querySelector(".tv-focused") || document.activeElement;
-    if (!cur || pool.indexOf(cur) === -1) {
-      setTvFocus(pool[0]);
+    var embedModal = document.getElementById("jjTvEmbedModal");
+    if (embedModal) {
+      var btns = getVisibleItems(embedModal, "button");
+      if (!btns.length) return;
+      var curB = document.querySelector(".tv-focused");
+      var bi = btns.indexOf(curB);
+      if (bi === -1) { setTvFocus(btns[0]); return; }
+      if (dir === "ArrowRight" && bi + 1 < btns.length) setTvFocus(btns[bi + 1]);
+      if (dir === "ArrowLeft" && bi - 1 >= 0) setTvFocus(btns[bi - 1]);
       return;
     }
 
-    // Horizontal step inside the same track/container first
-    var curTrack = cur.closest ? cur.closest(".jj-tv-row-track, .jj-det-actions, .jj-det-seasons, .jj-tv-nav-list") : null;
-    if (curTrack && (dir === "ArrowLeft" || dir === "ArrowRight")) {
-      var siblings = Array.from(curTrack.querySelectorAll("button, a, .jj-tv-card")).filter(function (el) {
-        return el.offsetParent !== null;
-      });
-      var sIdx = siblings.indexOf(cur);
+    var det = document.getElementById("jjTvDetails");
+    var isDetailsOpen = Boolean(det && det.classList.contains("open"));
+    var cur = document.querySelector(".tv-focused") || document.activeElement;
+
+    // Sidebar navigation when main screen is active
+    if (!isDetailsOpen) {
+      var sidebarItems = getVisibleItems(document.getElementById("jjTvSidebar"), ".jj-tv-nav-item");
+      var sIdx = sidebarItems.indexOf(cur);
       if (sIdx !== -1) {
-        var nextIdx = dir === "ArrowRight" ? sIdx + 1 : sIdx - 1;
-        if (nextIdx >= 0 && nextIdx < siblings.length) {
-          setTvFocus(siblings[nextIdx]);
+        if (dir === "ArrowDown" && sIdx + 1 < sidebarItems.length) {
+          setTvFocus(sidebarItems[sIdx + 1]);
           return;
         }
-        if (dir === "ArrowLeft" && curTrack.classList.contains("jj-tv-row-track")) {
-          var activeNav = document.querySelector("#jjTvSidebar .jj-tv-nav-item.active") || document.querySelector("#jjTvSidebar .jj-tv-nav-item");
-          if (activeNav) {
-            setTvFocus(activeNav);
-            return;
-          }
+        if (dir === "ArrowUp" && sIdx - 1 >= 0) {
+          setTvFocus(sidebarItems[sIdx - 1]);
+          return;
         }
+        if (dir === "ArrowRight") {
+          var mainRows = getStructuredRows(document.getElementById("jjTvMain"));
+          if (mainRows.length && mainRows[0].length) {
+            setTvFocus(mainRows[0][0]);
+          }
+          return;
+        }
+        return;
       }
     }
 
-    var cr = cur.getBoundingClientRect();
-    var cx = cr.left + cr.width / 2;
-    var cy = cr.top + cr.height / 2;
-    var best = null;
-    var bestScore = Infinity;
+    var rootEl = isDetailsOpen ? det : document.getElementById("jjTvMain");
+    var rows = getStructuredRows(rootEl);
+    if (!rows.length) return;
 
-    for (var i = 0; i < pool.length; i++) {
-      var el = pool[i];
-      if (el === cur) continue;
-      var r = el.getBoundingClientRect();
-      var tx = r.left + r.width / 2;
-      var ty = r.top + r.height / 2;
-      var dx = tx - cx;
-      var dy = ty - cy;
-
-      var ok = false;
-      var score = Infinity;
-      if (dir === "ArrowRight" && dx > 6) {
-        ok = true;
-        score = Math.abs(dy) * 5.0 + Math.abs(dx) * 0.4;
-      } else if (dir === "ArrowLeft" && dx < -6) {
-        ok = true;
-        score = Math.abs(dy) * 5.0 + Math.abs(dx) * 0.4;
-      } else if (dir === "ArrowDown" && dy > 16) {
-        ok = true;
-        score = Math.abs(dy) * 1.4 + Math.abs(dx) * 2.2;
-      } else if (dir === "ArrowUp" && dy < -16) {
-        ok = true;
-        score = Math.abs(dy) * 1.4 + Math.abs(dx) * 2.2;
-      }
-
-      if (ok && score < bestScore) {
-        bestScore = score;
-        best = el;
+    var curRowIdx = -1;
+    var curColIdx = -1;
+    for (var r = 0; r < rows.length; r++) {
+      var c = rows[r].indexOf(cur);
+      if (c !== -1) {
+        curRowIdx = r;
+        curColIdx = c;
+        break;
       }
     }
 
-    if (best) setTvFocus(best);
+    if (curRowIdx === -1) {
+      setTvFocus(rows[0][0]);
+      return;
+    }
+
+    if (dir === "ArrowRight") {
+      if (curColIdx + 1 < rows[curRowIdx].length) {
+        setTvFocus(rows[curRowIdx][curColIdx + 1]);
+      }
+      return;
+    }
+
+    if (dir === "ArrowLeft") {
+      if (curColIdx - 1 >= 0) {
+        setTvFocus(rows[curRowIdx][curColIdx - 1]);
+      } else if (!isDetailsOpen) {
+        var activeNav = document.querySelector("#jjTvSidebar .jj-tv-nav-item.active") ||
+          document.querySelector("#jjTvSidebar .jj-tv-nav-item");
+        if (activeNav) setTvFocus(activeNav);
+      }
+      return;
+    }
+
+    var curRect = cur.getBoundingClientRect();
+    var refX = curRect.left + curRect.width / 2;
+
+    if (dir === "ArrowDown") {
+      if (curRowIdx + 1 < rows.length) {
+        setTvFocus(pickNearestX(rows[curRowIdx + 1], refX));
+      }
+      return;
+    }
+
+    if (dir === "ArrowUp") {
+      if (curRowIdx - 1 >= 0) {
+        setTvFocus(pickNearestX(rows[curRowIdx - 1], refX));
+      }
+      return;
+    }
   }
 
   window.handleTvBack = function () {
@@ -1102,11 +1175,18 @@
         return;
       }
       e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
       navigateDpad(k);
-    } else if (k === "Enter") {
-      var cur = document.querySelector(".tv-focused") || document.activeElement;
+    } else if (k === "Enter" || k === " ") {
+      var cur = document.querySelector(".tv-focused");
       if (cur && cur.tagName !== "INPUT") {
         e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        var now = Date.now();
+        if (now - tvLastEnterMs < 300) return;
+        tvLastEnterMs = now;
         cur.click();
       }
     } else if (k === "Escape" || k === "Backspace") {
@@ -1114,6 +1194,8 @@
       if (active && active.tagName === "INPUT" && active.value) return;
       if (window.handleTvBack() === "handled") {
         e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
       }
     }
   }, true);
