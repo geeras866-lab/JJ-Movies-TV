@@ -810,7 +810,7 @@ jobs:
                       return true;
                   }
 
-                  float step = event.getRepeatCount() > 2 ? 48f : 26f;
+                  float step = event.getRepeatCount() > 2 ? 56f : 32f;
 
                   if (code == KeyEvent.KEYCODE_DPAD_UP) {
                       if (action == KeyEvent.ACTION_DOWN) moveCursorBy(0f, -step);
@@ -1178,7 +1178,7 @@ jobs:
                   String cleaned = cleanRipperTags(raw);
                   cleaned = cleaned.replaceAll("(?i)^jj\\s*[-:|]?\\s*", "").trim();
                   if (cleaned.isEmpty()) {
-                      cleaned = "Audio " + fallbackNum;
+                      cleaned = "Dolby / Audio " + fallbackNum;
                   }
                   return "JJ - " + cleaned;
               }
@@ -1325,6 +1325,9 @@ jobs:
 
                   ArrayList<String> options = new ArrayList<>();
                   options.add("--audio-time-stretch");
+                  options.add("--aout=opensles");
+                  options.add("--audio-resampler=soxr");
+                  options.add("--avcodec-hw=any");
                   options.add("--network-caching=3000");
                   options.add("--file-caching=1500");
                   options.add("--http-reconnect");
@@ -1354,7 +1357,7 @@ jobs:
                           }
                       } else if (event.type == MediaPlayer.Event.EncounteredError) {
                           loadingBox.setVisibility(View.GONE);
-                          Toast.makeText(this, "Playback error. Try Server 2.", Toast.LENGTH_LONG).show();
+                          Toast.makeText(this, "Playback error. Try another server.", Toast.LENGTH_LONG).show();
                       }
                   }));
 
@@ -1363,6 +1366,7 @@ jobs:
                   media.setHWDecoderEnabled(true, true);
                   media.addOption(":network-caching=3000");
                   media.addOption(":http-reconnect");
+                  media.addOption(":avcodec-hw=any");
                   media.addOption(":freetype-rel-fontsize=" + subRelValues[subtitleSizeIndex]);
                   mediaPlayer.setMedia(media);
                   media.release();
