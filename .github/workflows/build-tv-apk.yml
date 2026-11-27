@@ -595,7 +595,7 @@ jobs:
           </RelativeLayout>
           EOF
 
-      - name: 3. Setup MainActivity
+      - name: 3. Setup MainActivity with Embed Ad-Blocker
         run: |
           cat << 'EOF' > app/src/main/java/com/jjmovies/tv/MainActivity.java
           package com.jjmovies.tv;
@@ -611,12 +611,15 @@ jobs:
           import android.webkit.WebChromeClient;
           import android.webkit.WebResourceError;
           import android.webkit.WebResourceRequest;
+          import android.webkit.WebResourceResponse;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
           import androidx.appcompat.app.AppCompatActivity;
+          import java.io.ByteArrayInputStream;
           import java.io.ByteArrayOutputStream;
           import java.io.InputStream;
+          import java.util.Locale;
 
           public class MainActivity extends AppCompatActivity {
 
@@ -670,6 +673,26 @@ jobs:
                   );
               }
 
+              private boolean isAdHost(String url) {
+                  if (url == null) return false;
+                  String u = url.toLowerCase(Locale.US);
+                  return u.contains("doubleclick.net")
+                      || u.contains("googlesyndication.com")
+                      || u.contains("popads.net")
+                      || u.contains("popcash.net")
+                      || u.contains("propellerads")
+                      || u.contains("adsterra")
+                      || u.contains("exoclick")
+                      || u.contains("trafficjunky")
+                      || u.contains("juicyads")
+                      || u.contains("clickadu")
+                      || u.contains("hilltopads")
+                      || u.contains("monetag")
+                      || u.contains("acscdn")
+                      || u.contains("histats.com")
+                      || u.contains("yandex.ru/metrika");
+              }
+
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
@@ -686,6 +709,8 @@ jobs:
                   s.setMediaPlaybackRequiresUserGesture(false);
                   s.setLoadWithOverviewMode(true);
                   s.setUseWideViewPort(true);
+                  s.setSupportMultipleWindows(false);
+                  s.setJavaScriptCanOpenWindowsAutomatically(false);
                   s.setUserAgentString("Mozilla/5.0 (Linux; Android 11; Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 JJTV");
 
                   TvBridge bridge = new TvBridge();
@@ -694,6 +719,25 @@ jobs:
 
                   webView.setWebChromeClient(new WebChromeClient());
                   webView.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                          if (request != null && request.getUrl() != null && isAdHost(request.getUrl().toString())) {
+                              return new WebResourceResponse("text/plain", "UTF-8", new ByteArrayInputStream(new byte[0]));
+                          }
+                          return super.shouldInterceptRequest(view, request);
+                      }
+
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                          if (request != null && request.getUrl() != null) {
+                              String target = request.getUrl().toString();
+                              if (isAdHost(target) || (!request.isForMainFrame() && !target.contains("filemoon"))) {
+                                  return true;
+                              }
+                          }
+                          return false;
+                      }
+
                       @Override
                       public void onPageFinished(WebView view, String url) {
                           super.onPageFinished(view, url);
@@ -810,7 +854,7 @@ jobs:
 
               private String rawVideoUrl = "";
               private String movieDisplayTitle = "JJ Movies TV";
-              private int subtitleSizeIndex = 1; // 0=Small, 1=Normal, 2=Large, 3=Extra Large
+              private int subtitleSizeIndex = 1;
               private final String[] subSizeLabels = { "Small", "Normal", "Large", "Extra Large" };
               private final String[] subRelValues = { "24", "18", "14", "10" };
 
