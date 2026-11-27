@@ -54,9 +54,7 @@ jobs:
             npm init -y >/dev/null 2>&1
           fi
           npm install --no-save @capacitor/core @capacitor/cli @capacitor/android @capacitor/screen-orientation
-          if [ -d "assets" ]; then
-            npm install --no-save @capacitor/assets || true
-          fi
+          npm install -g @capacitor/cli
 
       - name: Initialize or Update Android TV Capacitor Project
         run: |
@@ -74,19 +72,15 @@ jobs:
           }
           EOF
 
-          CAP="./node_modules/.bin/cap"
-          if [ ! -x "$CAP" ]; then
-            CAP="npx --no-install cap"
-          fi
-
           if [ ! -d "android" ]; then
-            $CAP add android
+            cap add android
           fi
 
-          $CAP copy android
+          cap copy android
 
-          if [ -d "assets" ] && [ -x "./node_modules/.bin/capacitor-assets" ]; then
-            ./node_modules/.bin/capacitor-assets generate --android --iconBackgroundColor '#080d18' --splashBackgroundColor '#080d18' || true
+          if [ -d "assets" ]; then
+            npm install -g @capacitor/assets || true
+            capacitor-assets generate --android --iconBackgroundColor '#080d18' --splashBackgroundColor '#080d18' || true
           fi
 
           if [ -f "android/app/build.gradle" ]; then
