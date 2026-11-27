@@ -37,7 +37,6 @@ jobs:
       - name: Prepare Web Assets for JJ Movies TV
         run: |
           mkdir -p www
-          cp -r index.html app.js "$RUNNER_TEMP/tv_web_keep/" 2>/dev/null || true
           for f in *; do
             case "$f" in
               www|android|node_modules|.git|.github|assets) continue ;;
@@ -50,10 +49,7 @@ jobs:
             esac
           done
 
-          if [ ! -f www/package.json ]; then
-            cd www && npm init -y >/dev/null 2>&1 && cd ..
-          fi
-
+          rm -f www/package.json www/package-lock.json
           npm install --no-save @capacitor/core @capacitor/cli @capacitor/android @capacitor/screen-orientation
           if [ -d "assets" ]; then
             npm install --no-save @capacitor/assets || true
@@ -75,14 +71,19 @@ jobs:
           }
           EOF
 
-          if [ ! -d "android" ]; then
-            npx cap add android
+          CAP="./node_modules/.bin/cap"
+          if [ ! -x "$CAP" ]; then
+            CAP="npx --yes @capacitor/cli"
           fi
 
-          npx cap copy android
+          if [ ! -d "android" ]; then
+            $CAP add android
+          fi
 
-          if [ -d "assets" ] && npx @capacitor/assets --help >/dev/null 2>&1; then
-            npx @capacitor/assets generate --android --iconBackgroundColor '#080d18' --splashBackgroundColor '#080d18' || true
+          $CAP copy android
+
+          if [ -d "assets" ] && [ -x "./node_modules/.bin/capacitor-assets" ]; then
+            ./node_modules/.bin/capacitor-assets generate --android --iconBackgroundColor '#080d18' --splashBackgroundColor '#080d18' || true
           fi
 
           if [ -f "android/app/build.gradle" ]; then
