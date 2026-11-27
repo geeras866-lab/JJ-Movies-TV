@@ -58,7 +58,7 @@
     }, 2200);
   }
 
-  // ---------- TV App Update & Maintenance Check ----------
+  // ---------- TV App Update & Maintenance Check (TV Only) ----------
   function getTvVersionCode() {
     try {
       if (window.AndroidTV && typeof window.AndroidTV.getAppVersionCode === "function") {
@@ -152,8 +152,7 @@
       .then(function (rows) {
         if (!Array.isArray(rows)) return;
         var tvCtrl = rows.find(function (x) { return x && x.key === "tv_app_control_config"; });
-        var appCtrl = rows.find(function (x) { return x && x.key === "app_control_config"; });
-        var cfg = (tvCtrl && tvCtrl.value) ? tvCtrl.value : ((appCtrl && appCtrl.value) ? appCtrl.value : null);
+        var cfg = (tvCtrl && tvCtrl.value) ? tvCtrl.value : null;
         if (!cfg) return;
 
         if (cfg.maintenance === true) {
@@ -171,10 +170,7 @@
         var currentVer = getTvVersionCode();
         if (currentVer < minVer) {
           var tvDl = rows.find(function (x) { return x && x.key === "tv_app_download_config"; });
-          var appDl = rows.find(function (x) { return x && x.key === "app_download_config"; });
-          var rawUrl = cfg.tv_update_url || cfg.update_url ||
-            (tvDl && tvDl.value && tvDl.value.url) ||
-            (appDl && appDl.value && appDl.value.url) || "";
+          var rawUrl = cfg.tv_update_url || cfg.update_url || (tvDl && tvDl.value && tvDl.value.url) || "";
           var finalUrl = resolveUpdateUrl(rawUrl);
 
           showTvUpdateOverlay({
