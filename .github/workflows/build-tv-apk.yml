@@ -713,7 +713,7 @@ jobs:
           </RelativeLayout>
           EOF
 
-      - name: 3. Setup MainActivity (Confirm Exit + APK Updater) & EmbedPlayerActivity
+      - name: 3. Setup MainActivity (Sleek Exit Dialog + APK Updater) & EmbedPlayerActivity
         run: |
           cat << 'EOF' > app/src/main/java/com/jjmovies/tv/EmbedPlayerActivity.java
           package com.jjmovies.tv;
@@ -974,6 +974,8 @@ jobs:
           import android.graphics.Color;
           import android.graphics.Typeface;
           import android.graphics.drawable.ColorDrawable;
+          import android.graphics.drawable.GradientDrawable;
+          import android.graphics.drawable.StateListDrawable;
           import android.net.Uri;
           import android.os.Bundle;
           import android.os.Environment;
@@ -1080,6 +1082,27 @@ jobs:
                   );
               }
 
+              private int dp(int value) {
+                  return Math.round(value * getResources().getDisplayMetrics().density);
+              }
+
+              private StateListDrawable makePillBtnBg(int normalColor, int focusedColor) {
+                  GradientDrawable focused = new GradientDrawable();
+                  focused.setColor(focusedColor);
+                  focused.setCornerRadius(dp(24));
+                  focused.setStroke(dp(2), Color.WHITE);
+
+                  GradientDrawable normal = new GradientDrawable();
+                  normal.setColor(normalColor);
+                  normal.setCornerRadius(dp(24));
+                  normal.setStroke(dp(1), Color.parseColor("#33FFFFFF"));
+
+                  StateListDrawable states = new StateListDrawable();
+                  states.addState(new int[]{android.R.attr.state_focused}, focused);
+                  states.addState(new int[]{}, normal);
+                  return states;
+              }
+
               private void showExitConfirmDialog() {
                   if (exitDialog != null && exitDialog.isShowing()) return;
 
@@ -1087,30 +1110,51 @@ jobs:
                   d.requestWindowFeature(Window.FEATURE_NO_TITLE);
                   if (d.getWindow() != null) {
                       d.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+                      d.getWindow().setDimAmount(0.75f);
                   }
+
+                  GradientDrawable cardBg = new GradientDrawable();
+                  cardBg.setColor(Color.parseColor("#F50C0F17"));
+                  cardBg.setCornerRadius(dp(16));
+                  cardBg.setStroke(dp(1), Color.parseColor("#2AFFFFFF"));
 
                   LinearLayout box = new LinearLayout(this);
                   box.setOrientation(LinearLayout.VERTICAL);
                   box.setGravity(Gravity.CENTER_HORIZONTAL);
-                  box.setBackgroundResource(R.drawable.bg_tracks_card);
-                  box.setPadding(64, 52, 64, 48);
+                  box.setBackground(cardBg);
+                  box.setPadding(dp(28), dp(22), dp(28), dp(22));
+
+                  TextView badge = new TextView(this);
+                  badge.setText("JJ MOVIES TV");
+                  badge.setTextColor(Color.WHITE);
+                  badge.setTextSize(10f);
+                  badge.setTypeface(null, Typeface.BOLD);
+                  badge.setPadding(dp(10), dp(3), dp(10), dp(3));
+                  GradientDrawable badgeBg = new GradientDrawable();
+                  badgeBg.setColor(Color.parseColor("#E50914"));
+                  badgeBg.setCornerRadius(dp(12));
+                  badge.setBackground(badgeBg);
+                  box.addView(badge);
 
                   TextView title = new TextView(this);
-                  title.setText("Confirm Exit");
+                  title.setText("Exit JJ Movies TV?");
                   title.setTextColor(Color.WHITE);
-                  title.setTextSize(20f);
+                  title.setTextSize(18f);
                   title.setTypeface(null, Typeface.BOLD);
-                  box.addView(title);
+                  LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                  tLp.topMargin = dp(12);
+                  box.addView(title, tLp);
 
                   TextView msg = new TextView(this);
-                  msg.setText("Are you sure you want to exit JJ Movies TV?");
-                  msg.setTextColor(Color.parseColor("#CBD5E1"));
-                  msg.setTextSize(14f);
+                  msg.setText("Are you sure you want to close the app?");
+                  msg.setTextColor(Color.parseColor("#94A3B8"));
+                  msg.setTextSize(13f);
                   msg.setGravity(Gravity.CENTER);
                   LinearLayout.LayoutParams msgLp = new LinearLayout.LayoutParams(
                       LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                  msgLp.topMargin = 16;
-                  msgLp.bottomMargin = 42;
+                  msgLp.topMargin = dp(6);
+                  msgLp.bottomMargin = dp(20);
                   box.addView(msg, msgLp);
 
                   LinearLayout btnRow = new LinearLayout(this);
@@ -1118,26 +1162,26 @@ jobs:
                   btnRow.setGravity(Gravity.CENTER);
 
                   Button btnCancel = new Button(this);
-                  btnCancel.setText("Cancel");
+                  btnCancel.setText("Stay");
                   btnCancel.setAllCaps(false);
                   btnCancel.setTextColor(Color.WHITE);
-                  btnCancel.setTextSize(15f);
+                  btnCancel.setTextSize(14f);
                   btnCancel.setTypeface(null, Typeface.BOLD);
-                  btnCancel.setBackgroundResource(R.drawable.bg_resume_btn);
+                  btnCancel.setBackground(makePillBtnBg(Color.parseColor("#1E2433"), Color.parseColor("#334155")));
                   btnCancel.setFocusable(true);
-                  LinearLayout.LayoutParams b1Lp = new LinearLayout.LayoutParams(240, 110);
-                  b1Lp.rightMargin = 24;
+                  LinearLayout.LayoutParams b1Lp = new LinearLayout.LayoutParams(dp(120), dp(42));
+                  b1Lp.rightMargin = dp(12);
                   btnRow.addView(btnCancel, b1Lp);
 
                   Button btnExit = new Button(this);
                   btnExit.setText("Exit");
                   btnExit.setAllCaps(false);
                   btnExit.setTextColor(Color.WHITE);
-                  btnExit.setTextSize(15f);
+                  btnExit.setTextSize(14f);
                   btnExit.setTypeface(null, Typeface.BOLD);
-                  btnExit.setBackgroundResource(R.drawable.bg_resume_btn);
+                  btnExit.setBackground(makePillBtnBg(Color.parseColor("#1E2433"), Color.parseColor("#E50914")));
                   btnExit.setFocusable(true);
-                  LinearLayout.LayoutParams b2Lp = new LinearLayout.LayoutParams(240, 110);
+                  LinearLayout.LayoutParams b2Lp = new LinearLayout.LayoutParams(dp(120), dp(42));
                   btnRow.addView(btnExit, b2Lp);
 
                   box.addView(btnRow);
