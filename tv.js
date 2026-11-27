@@ -58,6 +58,137 @@
     }, 2200);
   }
 
+  // ---------- TV App Update & Maintenance Check ----------
+  function getTvVersionCode() {
+    try {
+      if (window.AndroidTV && typeof window.AndroidTV.getAppVersionCode === "function") {
+        var c = parseInt(window.AndroidTV.getAppVersionCode(), 10);
+        if (!isNaN(c) && c > 0) return c;
+      }
+      if (window.AndroidVlc && typeof window.AndroidVlc.getAppVersionCode === "function") {
+        var c2 = parseInt(window.AndroidVlc.getAppVersionCode(), 10);
+        if (!isNaN(c2) && c2 > 0) return c2;
+      }
+    } catch (e) {}
+    return 1;
+  }
+
+  function resolveUpdateUrl(raw) {
+    var val = String(raw || "").trim();
+    if (!val) return "";
+    if (/^https?:\/\//i.test(val)) return val;
+    if (val.indexOf("./") === 0 || val.indexOf("/") === 0) {
+      return window.location.origin + "/" + val.replace(/^\.?\//, "");
+    }
+    return "https://" + val;
+  }
+
+  function showTvUpdateOverlay(cfg) {
+    var appEl = document.getElementById("jjTvApp") || document.body;
+    var old = document.getElementById("jjTvUpdateOverlay");
+    if (old) old.remove();
+
+    var overlay = document.createElement("div");
+    overlay.id = "jjTvUpdateOverlay";
+    overlay.style.cssText = "position:fixed;inset:0;z-index:999995;background:rgba(6,10,20,0.96);display:flex;align-items:center;justify-content:center;padding:32px;";
+
+    var actionsHtml = "";
+    if (cfg.downloadUrl) {
+      actionsHtml += '<button type="button" id="jjTvUpdateNowBtn" class="jj-det-btn primary" style="min-width:200px;">⬇ Update Now</button>';
+    }
+    if (!cfg.strict) {
+      actionsHtml += '<button type="button" id="jjTvUpdateLaterBtn" class="jj-det-btn">Later</button>';
+    } else {
+      actionsHtml += '<button type="button" id="jjTvUpdateExitBtn" class="jj-det-btn">Exit App</button>';
+    }
+
+    overlay.innerHTML =
+      '<div style="width:100%;max-width:520px;background:#111827;border:2px solid rgba(255,36,80,0.55);border-radius:20px;padding:32px 28px;text-align:center;color:#f8fafc;box-shadow:0 24px 60px rgba(0,0,0,0.95);">' +
+        '<div style="font-size:48px;margin-bottom:10px;">' + esc(cfg.icon || "🚀") + '</div>' +
+        '<div style="display:inline-block;background:#e50914;color:#fff;font-size:11px;font-weight:900;letter-spacing:1.4px;padding:4px 12px;border-radius:999px;margin-bottom:14px;">JJ MOVIES TV</div>' +
+        '<h2 style="margin:0 0 10px;font-size:24px;font-weight:900;color:#fff;">' + esc(cfg.title) + '</h2>' +
+        '<p style="margin:0 0 24px;font-size:15px;line-height:1.55;color:#cbd5e1;white-space:pre-line;">' + esc(cfg.message) + '</p>' +
+        '<div style="display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;">' + actionsHtml + '</div>' +
+      '</div>';
+
+    appEl.appendChild(overlay);
+
+    var updBtn = document.getElementById("jjTvUpdateNowBtn");
+    var laterBtn = document.getElementById("jjTvUpdateLaterBtn");
+    var exitBtn = document.getElementById("jjTvUpdateExitBtn");
+
+    if (updBtn) {
+      updBtn.addEventListener("click", function () {
+        if (window.AndroidTV && typeof window.AndroidTV.downloadAndInstallApk === "function") {
+          showTvToast("⬇ Downloading update...");
+          window.AndroidTV.downloadAndInstallApk(cfg.downloadUrl);
+        } else {
+          window.location.href = cfg.downloadUrl;
+        }
+      });
+      setTvFocus(updBtn);
+    }
+    if (laterBtn) {
+      laterBtn.addEventListener("click", function () {
+        overlay.remove();
+        var heroPlay = document.getElementById("jjHeroPlayBtn");
+        if (heroPlay) setTvFocus(heroPlay);
+      });
+      if (!updBtn) setTvFocus(laterBtn);
+    }
+    if (exitBtn) {
+      exitBtn.addEventListener("click", function () {
+        if (window.AndroidTV && typeof window.AndroidTV.exitApp === "function") {
+          window.AndroidTV.exitApp();
+        }
+      });
+      if (!updBtn) setTvFocus(exitBtn);
+    }
+  }
+
+  function checkTvAppUpdates() {
+    fetch("./api/movies?type=settings", { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (rows) {
+        if (!Array.isArray(rows)) return;
+        var tvCtrl = rows.find(function (x) { return x && x.key === "tv_app_control_config"; });
+        var appCtrl = rows.find(function (x) { return x && x.key === "app_control_config"; });
+        var cfg = (tvCtrl && tvCtrl.value) ? tvCtrl.value : ((appCtrl && appCtrl.value) ? appCtrl.value : null);
+        if (!cfg) return;
+
+        if (cfg.maintenance === true) {
+          showTvUpdateOverlay({
+            icon: "🛠️",
+            title: "App Under Maintenance",
+            message: cfg.maintenance_message || "JJ Movies TV is under maintenance. Please check back soon.",
+            downloadUrl: "",
+            strict: true
+          });
+          return;
+        }
+
+        var minVer = parseInt(cfg.tv_min_version_code || cfg.min_version_code, 10) || 1;
+        var currentVer = getTvVersionCode();
+        if (currentVer < minVer) {
+          var tvDl = rows.find(function (x) { return x && x.key === "tv_app_download_config"; });
+          var appDl = rows.find(function (x) { return x && x.key === "app_download_config"; });
+          var rawUrl = cfg.tv_update_url || cfg.update_url ||
+            (tvDl && tvDl.value && tvDl.value.url) ||
+            (appDl && appDl.value && appDl.value.url) || "";
+          var finalUrl = resolveUpdateUrl(rawUrl);
+
+          showTvUpdateOverlay({
+            icon: "🚀",
+            title: cfg.update_title || "Update New App",
+            message: cfg.update_message || "New version of JJ Movies TV is available. Please update to continue.",
+            downloadUrl: finalUrl,
+            strict: cfg.force_update !== false
+          });
+        }
+      })
+      .catch(function () {});
+  }
+
   function isPlayableItem(m) {
     if (!m) return false;
     if (String(m.type || m.content_type || "").toLowerCase() === "series") return true;
@@ -574,6 +705,7 @@
       tvHeroTimer = setInterval(function () {
         if (document.getElementById("jjTvDetails").classList.contains("open")) return;
         if (document.getElementById("jjTvEmbedModal")) return;
+        if (document.getElementById("jjTvUpdateOverlay")) return;
         tvHeroIndex = (tvHeroIndex + 1) % tvHeroItems.length;
         renderHeroSlide(tvHeroIndex, false);
       }, 7000);
@@ -689,7 +821,7 @@
           resolveAndPlayInVlc(movie.title, movie.stream1, movie.stream2, { id: movie.id });
         }
       });
-      if (takeFocus || (hadHeroFocus && curFocusedId === "jjHeroPlayBtn")) {
+      if (!document.getElementById("jjTvUpdateOverlay") && (takeFocus || (hadHeroFocus && curFocusedId === "jjHeroPlayBtn"))) {
         setTvFocus(playBtn);
       }
     }
@@ -697,7 +829,7 @@
       infoBtn.addEventListener("click", function () {
         openTvDetails(movie);
       });
-      if (hadHeroFocus && curFocusedId === "jjHeroInfoBtn") {
+      if (!document.getElementById("jjTvUpdateOverlay") && hadHeroFocus && curFocusedId === "jjHeroInfoBtn") {
         setTvFocus(infoBtn);
       }
     }
@@ -1078,6 +1210,18 @@
   }
 
   function navigateDpad(dir) {
+    var updOverlay = document.getElementById("jjTvUpdateOverlay");
+    if (updOverlay) {
+      var uBtns = getVisibleItems(updOverlay, "button");
+      if (!uBtns.length) return;
+      var curU = document.querySelector(".tv-focused");
+      var ui = uBtns.indexOf(curU);
+      if (ui === -1) { setTvFocus(uBtns[0]); return; }
+      if (dir === "ArrowRight" && ui + 1 < uBtns.length) setTvFocus(uBtns[ui + 1]);
+      if (dir === "ArrowLeft" && ui - 1 >= 0) setTvFocus(uBtns[ui - 1]);
+      return;
+    }
+
     var embedModal = document.getElementById("jjTvEmbedModal");
     if (embedModal) {
       var btns = getVisibleItems(embedModal, "button");
@@ -1174,6 +1318,15 @@
   }
 
   window.handleTvBack = function () {
+    var updOverlay = document.getElementById("jjTvUpdateOverlay");
+    if (updOverlay) {
+      var laterBtn = document.getElementById("jjTvUpdateLaterBtn");
+      if (laterBtn) {
+        laterBtn.click();
+        return "handled";
+      }
+      return "exit";
+    }
     if (document.getElementById("jjTvEmbedModal")) {
       closeTvEmbedPlayer();
       return "handled";
@@ -1238,6 +1391,7 @@
   };
 
   buildTvShell();
+  checkTvAppUpdates();
 
   if (Array.isArray(window.movies) && window.movies.length) {
     ingestMovies(window.movies);
