@@ -50,6 +50,9 @@ jobs:
           done
 
           rm -f www/package.json www/package-lock.json
+          if [ ! -f package.json ]; then
+            npm init -y >/dev/null 2>&1
+          fi
           npm install --no-save @capacitor/core @capacitor/cli @capacitor/android @capacitor/screen-orientation
           if [ -d "assets" ]; then
             npm install --no-save @capacitor/assets || true
@@ -73,7 +76,7 @@ jobs:
 
           CAP="./node_modules/.bin/cap"
           if [ ! -x "$CAP" ]; then
-            CAP="npx --yes @capacitor/cli"
+            CAP="npx --no-install cap"
           fi
 
           if [ ! -d "android" ]; then
