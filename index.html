@@ -1,0 +1,50 @@
+      - name: Prepare Web Assets for JJ Movies TV
+        run: |
+          echo "Repo files:"
+          ls -la
+
+          rm -rf www
+          mkdir -p www
+
+          copy_root() {
+            for f in *; do
+              case "$f" in
+                www|android|node_modules|.git|.github|assets|capacitor.config.json) continue ;;
+                *.apk|*.aab|*.zip|*.keystore|*.jks) continue ;;
+                *)
+                  if [ -e "$f" ]; then
+                    cp -r "$f" www/
+                  fi
+                  ;;
+              esac
+            done
+          }
+
+          if [ -f index.html ]; then
+            copy_root
+          else
+            IDX=$(find . -name index.html -not -path "./node_modules/*" -not -path "./android/*" -not -path "./www/*" -not -path "./.git/*" | head -n 1)
+            if [ -n "$IDX" ]; then
+              SRC=$(dirname "$IDX")
+              echo "Found index.html in: $SRC"
+              cp -r "$SRC"/. www/
+            else
+              HTML=$(ls *.html 2>/dev/null | head -n 1 || true)
+              if [ -n "$HTML" ]; then
+                echo "No index.html, using $HTML as entry"
+                copy_root
+                cp "$HTML" www/index.html
+              fi
+            fi
+          fi
+
+          if [ ! -f www/index.html ]; then
+            echo "ERROR: no HTML entry file found in repo"
+            exit 1
+          fi
+
+          rm -f www/package.json www/package-lock.json
+          if [ ! -f package.json ]; then
+            npm init -y >/dev/null 2>&1
+          fi
+          npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/screen-orientation@7
