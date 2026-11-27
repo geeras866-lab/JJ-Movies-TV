@@ -104,6 +104,13 @@ jobs:
             npx capacitor-assets generate --android --iconBackgroundColor '#080d18' --splashBackgroundColor '#080d18' || true
           fi
 
+          GRADLE="android/app/build.gradle"
+          if [ -f "$GRADLE" ]; then
+            sed -i "s/applicationId \"[^\"]*\"/applicationId \"com.jjmovies.tv\"/" "$GRADLE"
+            sed -i "s/versionCode [0-9]*/versionCode ${VER_CODE}/" "$GRADLE"
+            sed -i "s/versionName \"[^\"]*\"/versionName \"${VER_NAME}\"/" "$GRADLE"
+          fi
+
           STR="android/app/src/main/res/values/strings.xml"
           if [ -f "$STR" ]; then
             sed -i 's|<string name="app_name">[^<]*</string>|<string name="app_name">JJ Movies TV</string>|' "$STR"
@@ -112,9 +119,6 @@ jobs:
 
       - name: Configure TV Manifest, FileProvider, Gradle & Native LibVLC Player
         run: |
-          VER_NAME="${{ github.event.inputs.app_version || '1.0.0' }}"
-          VER_CODE="${{ github.event.inputs.version_code || '1' }}"
-
           mkdir -p android/app/src/main/res/xml
           cat << 'EOF' > android/app/src/main/res/xml/file_paths.xml
           <?xml version="1.0" encoding="utf-8"?>
@@ -492,54 +496,23 @@ jobs:
           }
           EOF
 
-          cat << EOF > android/app/build.gradle
-          plugins {
-              id 'com.android.application'
-          }
-
-          android {
-              namespace 'com.jjmovies.tv'
-              compileSdk 35
-
-              defaultConfig {
-                  applicationId "com.jjmovies.tv"
-                  minSdk 21
-                  targetSdk 35
-                  versionCode ${VER_CODE}
-                  versionName "${VER_NAME}"
-                  ndk {
-                      abiFilters "armeabi-v7a", "arm64-v8a"
-                  }
-              }
-
-              buildTypes {
-                  release {
-                      minifyEnabled false
-                  }
-              }
-
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
-              }
-
-              packaging {
-                  jniLibs {
-                      pickFirsts.add("**/*.so")
-                  }
-              }
-          }
+          GRADLE="android/app/build.gradle"
+          if [ -f "$GRADLE" ]; then
+            if ! grep -q "abiFilters" "$GRADLE"; then
+              sed -i '0,/defaultConfig {/s//defaultConfig {\n        ndk { abiFilters "armeabi-v7a", "arm64-v8a" }/' "$GRADLE"
+            fi
+            if ! grep -q "libvlc-all" "$GRADLE"; then
+              cat << 'EOF' >> "$GRADLE"
 
           dependencies {
-              implementation project(':capacitor-android')
-              implementation 'androidx.appcompat:appcompat:1.6.1'
-              implementation 'com.google.android.material:material:1.11.0'
               implementation('org.videolan.android:libvlc-all:3.6.0') {
                   exclude group: 'androidx.legacy', module: 'legacy-support-v4'
               }
               implementation 'androidx.legacy:legacy-support-v4:1.0.0'
           }
           EOF
+            fi
+          fi
 
       - name: Build Debug TV APK
         run: |
