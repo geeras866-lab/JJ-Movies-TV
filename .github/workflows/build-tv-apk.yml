@@ -39,7 +39,7 @@ jobs:
           mkdir -p www
           for f in *; do
             case "$f" in
-              www|android|node_modules|.git|.github|assets) continue ;;
+              www|android|node_modules|.git|.github|assets|capacitor.config.json) continue ;;
               *.apk|*.aab|*.zip|*.keystore|*.jks) continue ;;
               *)
                 if [ -e "$f" ]; then
@@ -53,8 +53,7 @@ jobs:
           if [ ! -f package.json ]; then
             npm init -y >/dev/null 2>&1
           fi
-          npm install --no-save @capacitor/core @capacitor/cli @capacitor/android @capacitor/screen-orientation
-          npm install -g @capacitor/cli
+          npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/screen-orientation@7
 
       - name: Initialize or Update Android TV Capacitor Project
         run: |
@@ -73,14 +72,14 @@ jobs:
           EOF
 
           if [ ! -d "android" ]; then
-            cap add android
+            npx cap add android
           fi
 
-          cap copy android
+          npx cap copy android
 
           if [ -d "assets" ]; then
-            npm install -g @capacitor/assets || true
-            capacitor-assets generate --android --iconBackgroundColor '#080d18' --splashBackgroundColor '#080d18' || true
+            npm install --no-save @capacitor/assets || true
+            npx capacitor-assets generate --android --iconBackgroundColor '#080d18' --splashBackgroundColor '#080d18' || true
           fi
 
           if [ -f "android/app/build.gradle" ]; then
@@ -89,18 +88,10 @@ jobs:
             sed -i "s/versionName \"[^\"]*\"/versionName \"${VER_NAME}\"/" android/app/build.gradle
           fi
 
-          if [ -f "android/app/src/main/res/values/strings.xml" ]; then
-            python3 -c '
-          import xml.etree.ElementTree as ET
-          p = "android/app/src/main/res/values/strings.xml"
-          tree = ET.parse(p)
-          root = tree.getroot()
-          for name in ("app_name", "title_activity_main", "package_name", "custom_url_scheme"):
-              for el in root.findall(f".//string[@name=\x27{name}\x27]"):
-                  if name in ("app_name", "title_activity_main"):
-                      el.text = "JJ Movies TV"
-          tree.write(p, encoding="utf-8", xml_declaration=True)
-          '
+          STR="android/app/src/main/res/values/strings.xml"
+          if [ -f "$STR" ]; then
+            sed -i 's|<string name="app_name">[^<]*</string>|<string name="app_name">JJ Movies TV</string>|' "$STR"
+            sed -i 's|<string name="title_activity_main">[^<]*</string>|<string name="title_activity_main">JJ Movies TV</string>|' "$STR"
           fi
 
       - name: Configure TV Manifest, JJTV User-Agent & Native LibVLC Player
@@ -182,18 +173,23 @@ jobs:
               @Override
               public void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
+              }
 
-                  getWindow().getDecorView().post(() -> {
-                      if (getBridge() != null && getBridge().getWebView() != null) {
-                          jjWebView = getBridge().getWebView();
-                          WebSettings ws = jjWebView.getSettings();
-                          ws.setJavaScriptEnabled(true);
-                          ws.setDomStorageEnabled(true);
-                          ws.setMediaPlaybackRequiresUserGesture(false);
-                          ws.setUserAgentString(ws.getUserAgentString() + " JJTV");
-                          jjWebView.addJavascriptInterface(new TvVlcBridge(), "AndroidVlc");
+              @Override
+              public void onStart() {
+                  super.onStart();
+                  if (getBridge() != null && getBridge().getWebView() != null) {
+                      jjWebView = getBridge().getWebView();
+                      WebSettings ws = jjWebView.getSettings();
+                      ws.setJavaScriptEnabled(true);
+                      ws.setDomStorageEnabled(true);
+                      ws.setMediaPlaybackRequiresUserGesture(false);
+                      String ua = ws.getUserAgentString();
+                      if (ua != null && !ua.contains("JJTV")) {
+                          ws.setUserAgentString(ua + " JJTV");
                       }
-                  });
+                      jjWebView.addJavascriptInterface(new TvVlcBridge(), "AndroidVlc");
+                  }
               }
 
               public class TvVlcBridge {
@@ -231,7 +227,6 @@ jobs:
           import android.os.Looper;
           import android.view.Gravity;
           import android.view.KeyEvent;
-          import android.view.View;
           import android.view.WindowManager;
           import android.widget.Button;
           import android.widget.FrameLayout;
@@ -322,10 +317,10 @@ jobs:
                   btnRow.setOrientation(LinearLayout.HORIZONTAL);
                   btnRow.setGravity(Gravity.CENTER_VERTICAL);
 
-                  Button rewBtn = makeControlBtn("⏪ -10s");
-                  Button playPauseBtn = makeControlBtn("⏯ Play/Pause");
-                  Button fwdBtn = makeControlBtn("⏩ +10s");
-                  Button exitBtn = makeControlBtn("✕ Exit");
+                  Button rewBtn = makeControlBtn("-10s");
+                  Button playPauseBtn = makeControlBtn("Play/Pause");
+                  Button fwdBtn = makeControlBtn("+10s");
+                  Button exitBtn = makeControlBtn("Exit");
 
                   rewBtn.setOnClickListener(v -> seekBy(-10000L));
                   playPauseBtn.setOnClickListener(v -> togglePlayPause());
@@ -349,9 +344,12 @@ jobs:
                   root.addView(controlsBar, barParams);
                   setContentView(root);
 
+                  // D-pad focus for TV remotes
+                  playPauseBtn.requestFocus();
+
                   seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
                       @Override
-                      public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                      public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
                           if (fromUser && mediaPlayer != null && mediaPlayer.getLength() > 0) {
                               long target = (mediaPlayer.getLength() * progress) / 1000L;
                               timeView.setText(formatMs(target) + " / " + formatMs(mediaPlayer.getLength()));
@@ -359,14 +357,14 @@ jobs:
                       }
 
                       @Override
-                      public void onStartTrackingTouch(SeekBar seekBar) {
+                      public void onStartTrackingTouch(SeekBar sb) {
                           isSeeking = true;
                       }
 
                       @Override
-                      public void onStopTrackingTouch(SeekBar seekBar) {
+                      public void onStopTrackingTouch(SeekBar sb) {
                           if (mediaPlayer != null && mediaPlayer.getLength() > 0) {
-                              mediaPlayer.setTime((mediaPlayer.getLength() * seekBar.getProgress()) / 1000L);
+                              mediaPlayer.setTime((mediaPlayer.getLength() * sb.getProgress()) / 1000L);
                           }
                           isSeeking = false;
                       }
@@ -375,7 +373,6 @@ jobs:
                   ArrayList<String> args = new ArrayList<>();
                   args.add("--aout=opensles");
                   args.add("--audio-time-stretch");
-                  args.add("-vvv");
 
                   libVlc = new LibVLC(this, args);
                   mediaPlayer = new MediaPlayer(libVlc);
@@ -398,6 +395,7 @@ jobs:
                   b.setTextColor(Color.WHITE);
                   b.setBackgroundColor(Color.parseColor("#1E293B"));
                   b.setPadding(24, 12, 24, 12);
+                  b.setFocusable(true);
                   LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                           LinearLayout.LayoutParams.WRAP_CONTENT,
                           LinearLayout.LayoutParams.WRAP_CONTENT
@@ -430,15 +428,15 @@ jobs:
 
               @Override
               public boolean onKeyDown(int keyCode, KeyEvent event) {
-                  if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
+                  if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
                       togglePlayPause();
                       return true;
                   }
-                  if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND) {
+                  if (keyCode == KeyEvent.KEYCODE_MEDIA_REWIND) {
                       seekBy(-10000L);
                       return true;
                   }
-                  if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
+                  if (keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
                       seekBy(10000L);
                       return true;
                   }
@@ -446,6 +444,7 @@ jobs:
                       finish();
                       return true;
                   }
+                  // DPAD keys are left to the focused buttons / seekbar
                   return super.onKeyDown(keyCode, event);
               }
 
@@ -467,18 +466,39 @@ jobs:
           }
           EOF
 
-          cat << 'EOF' >> android/app/build.gradle
+          GRADLE="android/app/build.gradle"
+
+          if ! grep -q "libvlc-all" "$GRADLE"; then
+            cat << 'EOF' >> "$GRADLE"
 
           dependencies {
-              implementation "org.videolan.android:libvlc-all:3.6.3"
+              implementation "org.videolan.android:libvlc-all:3.6.0"
           }
           EOF
+          fi
+
+          if ! grep -q "abiFilters" "$GRADLE"; then
+            sed -i '0,/defaultConfig {/s//defaultConfig {\n        ndk { abiFilters "armeabi-v7a", "arm64-v8a" }/' "$GRADLE"
+          fi
+
+          if ! grep -q "pickFirsts" "$GRADLE"; then
+            cat << 'EOF' >> "$GRADLE"
+
+          android {
+              packaging {
+                  jniLibs {
+                      pickFirsts.add("**/*.so")
+                  }
+              }
+          }
+          EOF
+          fi
 
       - name: Build Debug TV APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --stacktrace
 
       - name: Upload TV APK Artifact
         uses: actions/upload-artifact@v4
