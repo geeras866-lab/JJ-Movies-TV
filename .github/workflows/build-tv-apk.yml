@@ -53,6 +53,11 @@ jobs:
 
           [ -f tv.css ] && cp tv.css app/src/main/assets/tv.css
           [ -f tv.js ] && cp tv.js app/src/main/assets/tv.js
+          if [ -f "assets/icon-only.png" ]; then
+            cp "assets/icon-only.png" "app/src/main/assets/jj_logo.png"
+          elif [ -f "assets/icon-foreground.png" ]; then
+            cp "assets/icon-foreground.png" "app/src/main/assets/jj_logo.png"
+          fi
 
           cat << 'EOF' > settings.gradle
           pluginManagement {
@@ -463,6 +468,7 @@ jobs:
           public class MainActivity extends AppCompatActivity {
 
               private WebView webView;
+              private String cachedLogoDataUri = null;
               private static final String SITE_URL = "https://jj-movies.pages.dev/?tv=1";
 
               public class TvBridge {
@@ -489,6 +495,14 @@ jobs:
                       } catch (Exception e) {
                           return 1;
                       }
+                  }
+
+                  @JavascriptInterface
+                  public String getAppLogo() {
+                      if (cachedLogoDataUri != null) return cachedLogoDataUri;
+                      String b64 = readAssetBase64("jj_logo.png");
+                      cachedLogoDataUri = b64.isEmpty() ? "" : ("data:image/png;base64," + b64);
+                      return cachedLogoDataUri;
                   }
               }
 
