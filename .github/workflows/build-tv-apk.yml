@@ -597,14 +597,19 @@ jobs:
           </RelativeLayout>
           EOF
 
-      - name: 3. Setup MainActivity & EmbedPlayerActivity
+      - name: 3. Setup MainActivity & EmbedPlayerActivity with Remote Pointer
         run: |
           cat << 'EOF' > app/src/main/java/com/jjmovies/tv/EmbedPlayerActivity.java
           package com.jjmovies.tv;
 
           import android.graphics.Color;
+          import android.graphics.PixelFormat;
+          import android.graphics.drawable.GradientDrawable;
           import android.os.Bundle;
+          import android.os.SystemClock;
+          import android.view.Gravity;
           import android.view.KeyEvent;
+          import android.view.MotionEvent;
           import android.view.View;
           import android.view.WindowManager;
           import android.webkit.WebChromeClient;
@@ -613,6 +618,8 @@ jobs:
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
+          import android.widget.FrameLayout;
+          import android.widget.TextView;
           import android.widget.Toast;
           import androidx.appcompat.app.AppCompatActivity;
           import java.io.ByteArrayInputStream;
@@ -624,6 +631,11 @@ jobs:
               public static final String EXTRA_EMBED_TITLE = "embed_title";
 
               private WebView embedWebView;
+              private View pointerView;
+              private TextView hintBadge;
+              private float cursorX = -1f;
+              private float cursorY = -1f;
+              private boolean pointerActive = false;
 
               private boolean isAdHost(String url) {
                   if (url == null) return false;
@@ -655,6 +667,50 @@ jobs:
                   );
               }
 
+              private void ensureCursorInitialized(View container) {
+                  int w = container.getWidth();
+                  int h = container.getHeight();
+                  if (w <= 0 || h <= 0) return;
+                  if (cursorX < 0 || cursorY < 0) {
+                      cursorX = w / 2f;
+                      cursorY = h / 2f;
+                  }
+                  cursorX = Math.max(8f, Math.min(w - 8f, cursorX));
+                  cursorY = Math.max(8f, Math.min(h - 8f, cursorY));
+                  pointerActive = true;
+                  pointerView.setVisibility(View.VISIBLE);
+                  pointerView.setTranslationX(cursorX - 14f);
+                  pointerView.setTranslationY(cursorY - 14f);
+                  if (hintBadge != null) {
+                      hintBadge.setVisibility(View.VISIBLE);
+                  }
+              }
+
+              private void moveCursorBy(float dx, float dy) {
+                  View root = findViewById(android.R.id.content);
+                  if (root == null) return;
+                  cursorX += dx;
+                  cursorY += dy;
+                  ensureCursorInitialized(root);
+                  long now = SystemClock.uptimeMillis();
+                  MotionEvent hover = MotionEvent.obtain(now, now, MotionEvent.ACTION_HOVER_MOVE, cursorX, cursorY, 0);
+                  embedWebView.dispatchGenericMotionEvent(hover);
+                  hover.recycle();
+              }
+
+              private void clickAtCursor() {
+                  View root = findViewById(android.R.id.content);
+                  if (root == null) return;
+                  ensureCursorInitialized(root);
+                  long now = SystemClock.uptimeMillis();
+                  MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, cursorX, cursorY, 0);
+                  MotionEvent up = MotionEvent.obtain(now, now + 45, MotionEvent.ACTION_UP, cursorX, cursorY, 0);
+                  embedWebView.dispatchTouchEvent(down);
+                  embedWebView.dispatchTouchEvent(up);
+                  down.recycle();
+                  up.recycle();
+              }
+
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
@@ -668,9 +724,44 @@ jobs:
                       return;
                   }
 
+                  FrameLayout container = new FrameLayout(this);
+                  container.setBackgroundColor(Color.BLACK);
+
                   embedWebView = new WebView(this);
                   embedWebView.setBackgroundColor(Color.BLACK);
-                  setContentView(embedWebView);
+                  container.addView(embedWebView, new FrameLayout.LayoutParams(
+                      FrameLayout.LayoutParams.MATCH_PARENT,
+                      FrameLayout.LayoutParams.MATCH_PARENT
+                  ));
+
+                  GradientDrawable cursorCircle = new GradientDrawable();
+                  cursorCircle.setShape(GradientDrawable.OVAL);
+                  cursorCircle.setColor(Color.parseColor("#66FF2450"));
+                  cursorCircle.setStroke(4, Color.WHITE);
+
+                  pointerView = new View(this);
+                  pointerView.setBackground(cursorCircle);
+                  pointerView.setVisibility(View.GONE);
+                  FrameLayout.LayoutParams pParams = new FrameLayout.LayoutParams(28, 28);
+                  pParams.gravity = Gravity.TOP | Gravity.START;
+                  container.addView(pointerView, pParams);
+
+                  hintBadge = new TextView(this);
+                  hintBadge.setText("D-Pad: Move Pointer  •  OK: Click Play  •  Back: Exit");
+                  hintBadge.setTextColor(Color.WHITE);
+                  hintBadge.setTextSize(12f);
+                  hintBadge.setBackgroundColor(Color.parseColor("#B3080D18"));
+                  hintBadge.setPadding(24, 10, 24, 10);
+                  hintBadge.setVisibility(View.GONE);
+                  FrameLayout.LayoutParams hParams = new FrameLayout.LayoutParams(
+                      FrameLayout.LayoutParams.WRAP_CONTENT,
+                      FrameLayout.LayoutParams.WRAP_CONTENT
+                  );
+                  hParams.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+                  hParams.topMargin = 20;
+                  container.addView(hintBadge, hParams);
+
+                  setContentView(container);
 
                   WebSettings s = embedWebView.getSettings();
                   s.setJavaScriptEnabled(true);
@@ -699,18 +790,57 @@ jobs:
                           }
                           return false;
                       }
+
+                      @Override
+                      public void onPageFinished(WebView view, String url) {
+                          super.onPageFinished(view, url);
+                          container.postDelayed(() -> ensureCursorInitialized(container), 400);
+                      }
                   });
 
                   embedWebView.loadUrl(embedUrl.trim());
               }
 
               @Override
-              public boolean onKeyDown(int keyCode, KeyEvent event) {
-                  if (keyCode == KeyEvent.KEYCODE_BACK) {
-                      finish();
+              public boolean dispatchKeyEvent(KeyEvent event) {
+                  int action = event.getAction();
+                  int code = event.getKeyCode();
+
+                  if (code == KeyEvent.KEYCODE_BACK) {
+                      if (action == KeyEvent.ACTION_DOWN) finish();
                       return true;
                   }
-                  return super.onKeyDown(keyCode, event);
+
+                  float step = event.getRepeatCount() > 2 ? 48f : 26f;
+
+                  if (code == KeyEvent.KEYCODE_DPAD_UP) {
+                      if (action == KeyEvent.ACTION_DOWN) moveCursorBy(0f, -step);
+                      return true;
+                  }
+                  if (code == KeyEvent.KEYCODE_DPAD_DOWN) {
+                      if (action == KeyEvent.ACTION_DOWN) moveCursorBy(0f, step);
+                      return true;
+                  }
+                  if (code == KeyEvent.KEYCODE_DPAD_LEFT) {
+                      if (action == KeyEvent.ACTION_DOWN) moveCursorBy(-step, 0f);
+                      return true;
+                  }
+                  if (code == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                      if (action == KeyEvent.ACTION_DOWN) moveCursorBy(step, 0f);
+                      return true;
+                  }
+                  if (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER) {
+                      if (action == KeyEvent.ACTION_DOWN) {
+                          if (!pointerActive) {
+                              View root = findViewById(android.R.id.content);
+                              if (root != null) ensureCursorInitialized(root);
+                          }
+                          clickAtCursor();
+                      }
+                      return true;
+                  }
+
+                  return super.dispatchKeyEvent(event);
               }
 
               @Override
