@@ -20,6 +20,7 @@
   var tvHeroIndex = 0;
   var tvHeroTimer = null;
   var tvLastFocusedBeforeDetails = null;
+  var tvLastFocusedBeforeEmbed = null;
   var tvTmdbMemoryCache = {};
 
   try {
@@ -168,7 +169,98 @@
     return fallbackObj;
   }
 
-  // ---------- Direct Native LibVLC Launcher ----------
+  // ---------- Stream Routing: Native LibVLC vs Filemoon / Embed Player ----------
+  function isDirectMediaUrl(url) {
+    if (!url) return false;
+    return /\.(mp4|mkv|webm|m3u8|avi|mov|ts|flv|m4v)(\?.*)?$/i.test(url) ||
+      /pixeldrain\.com\/api\/file\//i.test(url) ||
+      /[?&]sig=/i.test(url);
+  }
+
+  function normalizeEmbedUrl(rawUrl) {
+    var val = String(rawUrl || "").trim();
+    if (!val) return "";
+    if (!/^https?:\/\//i.test(val)) {
+      val = "https://" + val;
+    }
+    if (val.indexOf("/e/") !== -1) return val;
+    var m = val.match(/^(https?:\/\/[^\/]+)\/(?:d|v)\/([A-Za-z0-9_-]+)(\?.*)?$/i);
+    if (m) {
+      return m[1] + "/e/" + m[2] + (m[3] || "");
+    }
+    return val;
+  }
+
+  function closeTvEmbedPlayer() {
+    var modal = document.getElementById("jjTvEmbedModal");
+    if (!modal) return;
+    modal.remove();
+    if (tvLastFocusedBeforeEmbed && document.body.contains(tvLastFocusedBeforeEmbed)) {
+      setTvFocus(tvLastFocusedBeforeEmbed);
+    }
+  }
+
+  function openTvEmbedPlayer(title, embedUrl, backupStream, meta) {
+    closeTvEmbedPlayer();
+    tvLastFocusedBeforeEmbed = document.activeElement;
+
+    var modal = document.createElement("div");
+    modal.id = "jjTvEmbedModal";
+    modal.style.cssText = "position:fixed;inset:0;z-index:999990;background:#000000;display:flex;flex-direction:column;";
+
+    var topBar = document.createElement("div");
+    topBar.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 22px;background:linear-gradient(180deg,rgba(0,0,0,0.92),rgba(0,0,0,0));position:absolute;top:0;left:0;right:0;z-index:5;transition:opacity 0.3s;";
+
+    var titleSpan = document.createElement("div");
+    titleSpan.style.cssText = "color:#ffffff;font-size:16px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+    titleSpan.textContent = title || "JJ Movies TV";
+
+    var btnGroup = document.createElement("div");
+    btnGroup.style.cssText = "display:flex;align-items:center;gap:10px;flex-shrink:0;";
+
+    if (backupStream) {
+      var switchBtn = document.createElement("button");
+      switchBtn.type = "button";
+      switchBtn.textContent = "🚀 Switch Server";
+      switchBtn.style.cssText = "background:#1e293b;color:#fff;border:2px solid rgba(255,255,255,0.25);border-radius:8px;padding:8px 16px;font-size:13px;font-weight:800;cursor:pointer;";
+      switchBtn.addEventListener("click", function () {
+        closeTvEmbedPlayer();
+        resolveAndPlayInVlc(title, backupStream, "", meta);
+      });
+      btnGroup.appendChild(switchBtn);
+    }
+
+    var closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.id = "jjTvEmbedCloseBtn";
+    closeBtn.textContent = "✕ Close";
+    closeBtn.style.cssText = "background:#e50914;color:#fff;border:2px solid #fff;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:900;cursor:pointer;";
+    closeBtn.addEventListener("click", closeTvEmbedPlayer);
+    btnGroup.appendChild(closeBtn);
+
+    topBar.appendChild(titleSpan);
+    topBar.appendChild(btnGroup);
+
+    var iframe = document.createElement("iframe");
+    iframe.id = "jjTvEmbedFrame";
+    iframe.src = embedUrl;
+    iframe.allowFullscreen = true;
+    iframe.setAttribute("webkitallowfullscreen", "true");
+    iframe.setAttribute("mozallowfullscreen", "true");
+    iframe.setAttribute("referrerpolicy", "no-referrer");
+    iframe.setAttribute("allow", "autoplay; fullscreen; picture-in-picture; encrypted-media; screen-wake-lock");
+    iframe.style.cssText = "width:100%;height:100%;border:0;flex:1;background:#000000;";
+
+    modal.appendChild(topBar);
+    modal.appendChild(iframe);
+    document.body.appendChild(modal);
+
+    setTvFocus(closeBtn);
+    iframe.addEventListener("load", function () {
+      try { iframe.focus(); } catch (e) {}
+    });
+  }
+
   async function resolveAndPlayInVlc(title, rawStream, backupStream, meta) {
     var chosen = String(rawStream || "").trim() || String(backupStream || "").trim();
     if (!chosen) {
@@ -176,17 +268,18 @@
       return;
     }
 
-    showTvToast("⚡ Loading in VLC Player...");
-
     try {
       var playableUrl = "";
+      var isDirect = false;
 
       if (/^https?:\/\//i.test(chosen) && /[?&]sig=/i.test(chosen)) {
         playableUrl = chosen;
-      } else if (/(?:pixeldrain\.com\/(?:u|api\/file)\/|^([A-Za-z0-9_-]{6,20})$)/i.test(chosen)) {
+        isDirect = true;
+      } else if (/pixeldrain\.com\/(?:u|api\/file)\//i.test(chosen) || /^[A-Za-z0-9_-]{6,20}$/.test(chosen)) {
         var m = chosen.match(/pixeldrain\.com\/(?:u|api\/file)\/([A-Za-z0-9_-]+)/i);
         var pid = m ? m[1] : chosen;
         playableUrl = "https://pixeldrain.com/api/file/" + pid;
+        isDirect = true;
       } else {
         var workerFile = "";
         var b2Match = chosen.match(/^https?:\/\/(b2_[a-zA-Z0-9_-]+)\/(.+)$/i);
@@ -197,11 +290,12 @@
             var u = new URL(chosen);
             workerFile = decodeURIComponent(u.pathname.replace(/^\/+/, ""));
           } catch (e) {}
-        } else if (!/^https?:\/\//i.test(chosen)) {
+        } else if (!/^https?:\/\//i.test(chosen) && !/^[a-z0-9.-]+\.[a-z]{2,}\//i.test(chosen)) {
           workerFile = chosen.replace(/^\/+/, "");
         }
 
         if (workerFile) {
+          showTvToast("⚡ Loading in VLC Player...");
           var qp = new URLSearchParams();
           qp.set("file", workerFile);
           if (meta && meta.id) qp.set("id", String(meta.id));
@@ -211,17 +305,24 @@
           var tokData = await tokRes.json();
           if (!tokData || !tokData.url) throw new Error("Stream URL not found");
           playableUrl = String(tokData.url).trim();
+          isDirect = true;
         } else {
-          playableUrl = chosen;
+          playableUrl = normalizeEmbedUrl(chosen);
+          isDirect = isDirectMediaUrl(playableUrl);
         }
       }
 
-      if (window.AndroidVlc && typeof window.AndroidVlc.playVideo === "function") {
-        window.AndroidVlc.playVideo(playableUrl, title || "JJ Movies TV");
-      } else if (typeof window.openServerSelection === "function") {
-        window.openServerSelection(title, playableUrl, backupStream, "token", meta);
+      if (isDirect) {
+        if (window.AndroidVlc && typeof window.AndroidVlc.playVideo === "function") {
+          window.AndroidVlc.playVideo(playableUrl, title || "JJ Movies TV");
+        } else if (typeof window.openServerSelection === "function") {
+          window.openServerSelection(title, playableUrl, backupStream, "token", meta);
+        } else {
+          window.location.href = playableUrl;
+        }
       } else {
-        window.location.href = playableUrl;
+        showTvToast("▶ Opening Stream Player...");
+        openTvEmbedPlayer(title, playableUrl, backupStream, meta);
       }
     } catch (err) {
       if (backupStream && backupStream !== chosen) {
@@ -831,6 +932,13 @@
   }
 
   function getActiveFocusPool() {
+    var embedModal = document.getElementById("jjTvEmbedModal");
+    if (embedModal) {
+      return Array.from(embedModal.querySelectorAll("button")).filter(function (el) {
+        var r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      });
+    }
     var det = document.getElementById("jjTvDetails");
     if (det && det.classList.contains("open")) {
       return Array.from(det.querySelectorAll("button, a, .jj-tv-card")).filter(function (el) {
@@ -893,6 +1001,10 @@
   }
 
   window.handleTvBack = function () {
+    if (document.getElementById("jjTvEmbedModal")) {
+      closeTvEmbedPlayer();
+      return "handled";
+    }
     var det = document.getElementById("jjTvDetails");
     if (det && det.classList.contains("open")) {
       closeTvDetails();
