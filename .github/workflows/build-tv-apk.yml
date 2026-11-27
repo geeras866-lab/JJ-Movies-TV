@@ -44,6 +44,7 @@ jobs:
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/drawable
           mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/xml
           mkdir -p app/src/main/res/mipmap-mdpi
           mkdir -p app/src/main/res/mipmap-hdpi
           mkdir -p app/src/main/res/mipmap-xhdpi
@@ -137,6 +138,14 @@ jobs:
           }
           EOF
 
+          cat << 'EOF' > app/src/main/res/xml/file_paths.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths>
+              <external-files-path name="updates" path="." />
+              <cache-path name="cache_updates" path="." />
+          </paths>
+          EOF
+
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -144,6 +153,7 @@ jobs:
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
               <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
               <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -157,6 +167,16 @@ jobs:
                   android:roundIcon="@mipmap/ic_launcher_round"
                   android:theme="@style/Theme.AppCompat.NoActionBar"
                   android:usesCleartextTraffic="true">
+
+                  <provider
+                      android:name="androidx.core.content.FileProvider"
+                      android:authorities="com.jjmovies.tv.fileprovider"
+                      android:exported="false"
+                      android:grantUriPermissions="true">
+                      <meta-data
+                          android:name="android.support.FILE_PROVIDER_PATHS"
+                          android:resource="@xml/file_paths" />
+                  </provider>
 
                   <activity
                       android:name=".MainActivity"
@@ -187,7 +207,7 @@ jobs:
           </manifest>
           EOF
 
-      - name: 2. Setup Icons, Audio-Subtitles Card & Player Layout
+      - name: 2. Setup Icons, Audio-Subtitles Card, Resume Card & Player Layout
         run: |
           cat << 'EOF' > app/src/main/res/values/ic_launcher_background.xml
           <?xml version="1.0" encoding="utf-8"?>
@@ -262,6 +282,26 @@ jobs:
                   <shape android:shape="rectangle">
                       <solid android:color="#00000000" />
                       <corners android:radius="8dp" />
+                  </shape>
+              </item>
+          </selector>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/drawable/bg_resume_btn.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <selector xmlns:android="http://schemas.android.com/apk/res/android">
+              <item android:state_focused="true">
+                  <shape android:shape="rectangle">
+                      <solid android:color="#E50914" />
+                      <stroke android:width="2.5dp" android:color="#FFFFFF" />
+                      <corners android:radius="10dp" />
+                  </shape>
+              </item>
+              <item>
+                  <shape android:shape="rectangle">
+                      <solid android:color="#222A3A" />
+                      <stroke android:width="1dp" android:color="#44FFFFFF" />
+                      <corners android:radius="10dp" />
                   </shape>
               </item>
           </selector>
@@ -475,6 +515,82 @@ jobs:
               </RelativeLayout>
 
               <RelativeLayout
+                  android:id="@+id/resume_overlay"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"
+                  android:background="#CC000000"
+                  android:clickable="true"
+                  android:visibility="gone">
+
+                  <LinearLayout
+                      android:layout_width="460dp"
+                      android:layout_height="wrap_content"
+                      android:layout_centerInParent="true"
+                      android:background="@drawable/bg_tracks_card"
+                      android:gravity="center"
+                      android:orientation="vertical"
+                      android:padding="26dp">
+
+                      <TextView
+                          android:id="@+id/tv_resume_title"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:ellipsize="end"
+                          android:maxLines="2"
+                          android:gravity="center"
+                          android:text="Continue Watching?"
+                          android:textColor="#FFFFFF"
+                          android:textSize="18sp"
+                          android:textStyle="bold" />
+
+                      <TextView
+                          android:id="@+id/tv_resume_subtitle"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="6dp"
+                          android:layout_marginBottom="20dp"
+                          android:text="Resume from where you left off"
+                          android:textColor="#CBD5E1"
+                          android:textSize="13sp" />
+
+                      <LinearLayout
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:gravity="center"
+                          android:orientation="horizontal">
+
+                          <Button
+                              android:id="@+id/btn_resume_continue"
+                              android:layout_width="0dp"
+                              android:layout_height="48dp"
+                              android:layout_marginEnd="10dp"
+                              android:layout_weight="1"
+                              android:background="@drawable/bg_resume_btn"
+                              android:focusable="true"
+                              android:text="▶ Continue"
+                              android:textAllCaps="false"
+                              android:textColor="#FFFFFF"
+                              android:textSize="14sp"
+                              android:textStyle="bold" />
+
+                          <Button
+                              android:id="@+id/btn_resume_restart"
+                              android:layout_width="0dp"
+                              android:layout_height="48dp"
+                              android:layout_marginStart="10dp"
+                              android:layout_weight="1"
+                              android:background="@drawable/bg_resume_btn"
+                              android:focusable="true"
+                              android:text="↺ Start Over"
+                              android:textAllCaps="false"
+                              android:textColor="#FFFFFF"
+                              android:textSize="14sp"
+                              android:textStyle="bold" />
+                      </LinearLayout>
+                  </LinearLayout>
+              </RelativeLayout>
+
+              <RelativeLayout
                   android:id="@+id/tracks_overlay"
                   android:layout_width="match_parent"
                   android:layout_height="match_parent"
@@ -597,7 +713,7 @@ jobs:
           </RelativeLayout>
           EOF
 
-      - name: 3. Setup MainActivity & EmbedPlayerActivity
+      - name: 3. Setup MainActivity (Confirm Exit + APK Updater) & EmbedPlayerActivity
         run: |
           cat << 'EOF' > app/src/main/java/com/jjmovies/tv/EmbedPlayerActivity.java
           package com.jjmovies.tv;
@@ -853,12 +969,19 @@ jobs:
           cat << 'EOF' > app/src/main/java/com/jjmovies/tv/MainActivity.java
           package com.jjmovies.tv;
 
+          import android.app.Dialog;
           import android.content.Intent;
           import android.graphics.Color;
+          import android.graphics.Typeface;
+          import android.graphics.drawable.ColorDrawable;
+          import android.net.Uri;
           import android.os.Bundle;
+          import android.os.Environment;
           import android.util.Base64;
+          import android.view.Gravity;
           import android.view.KeyEvent;
           import android.view.View;
+          import android.view.Window;
           import android.view.WindowManager;
           import android.webkit.JavascriptInterface;
           import android.webkit.WebChromeClient;
@@ -867,14 +990,26 @@ jobs:
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.ProgressBar;
+          import android.widget.TextView;
+          import android.widget.Toast;
           import androidx.appcompat.app.AppCompatActivity;
+          import androidx.core.content.FileProvider;
           import java.io.ByteArrayOutputStream;
+          import java.io.File;
+          import java.io.FileOutputStream;
           import java.io.InputStream;
+          import java.net.HttpURLConnection;
+          import java.net.URL;
 
           public class MainActivity extends AppCompatActivity {
 
               private WebView webView;
               private String cachedLogoDataUri = null;
+              private Dialog exitDialog = null;
+              private boolean isDownloadingUpdate = false;
               private static final String SITE_URL = "https://jj-movies.pages.dev/?tv=1";
 
               public class TvBridge {
@@ -921,6 +1056,17 @@ jobs:
                       cachedLogoDataUri = b64.isEmpty() ? "" : ("data:image/png;base64," + b64);
                       return cachedLogoDataUri;
                   }
+
+                  @JavascriptInterface
+                  public void downloadAndInstallApk(String apkUrl) {
+                      if (apkUrl == null || apkUrl.trim().isEmpty()) return;
+                      runOnUiThread(() -> startApkUpdateDownload(apkUrl.trim()));
+                  }
+
+                  @JavascriptInterface
+                  public void exitApp() {
+                      runOnUiThread(() -> finish());
+                  }
               }
 
               private void hideSystemUi() {
@@ -932,6 +1078,197 @@ jobs:
                       | View.SYSTEM_UI_FLAG_FULLSCREEN
                       | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                   );
+              }
+
+              private void showExitConfirmDialog() {
+                  if (exitDialog != null && exitDialog.isShowing()) return;
+
+                  Dialog d = new Dialog(this);
+                  d.requestWindowFeature(Window.FEATURE_NO_TITLE);
+                  if (d.getWindow() != null) {
+                      d.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+                  }
+
+                  LinearLayout box = new LinearLayout(this);
+                  box.setOrientation(LinearLayout.VERTICAL);
+                  box.setGravity(Gravity.CENTER_HORIZONTAL);
+                  box.setBackgroundResource(R.drawable.bg_tracks_card);
+                  box.setPadding(64, 52, 64, 48);
+
+                  TextView title = new TextView(this);
+                  title.setText("Confirm Exit");
+                  title.setTextColor(Color.WHITE);
+                  title.setTextSize(20f);
+                  title.setTypeface(null, Typeface.BOLD);
+                  box.addView(title);
+
+                  TextView msg = new TextView(this);
+                  msg.setText("Are you sure you want to exit JJ Movies TV?");
+                  msg.setTextColor(Color.parseColor("#CBD5E1"));
+                  msg.setTextSize(14f);
+                  msg.setGravity(Gravity.CENTER);
+                  LinearLayout.LayoutParams msgLp = new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                  msgLp.topMargin = 16;
+                  msgLp.bottomMargin = 42;
+                  box.addView(msg, msgLp);
+
+                  LinearLayout btnRow = new LinearLayout(this);
+                  btnRow.setOrientation(LinearLayout.HORIZONTAL);
+                  btnRow.setGravity(Gravity.CENTER);
+
+                  Button btnCancel = new Button(this);
+                  btnCancel.setText("Cancel");
+                  btnCancel.setAllCaps(false);
+                  btnCancel.setTextColor(Color.WHITE);
+                  btnCancel.setTextSize(15f);
+                  btnCancel.setTypeface(null, Typeface.BOLD);
+                  btnCancel.setBackgroundResource(R.drawable.bg_resume_btn);
+                  btnCancel.setFocusable(true);
+                  LinearLayout.LayoutParams b1Lp = new LinearLayout.LayoutParams(240, 110);
+                  b1Lp.rightMargin = 24;
+                  btnRow.addView(btnCancel, b1Lp);
+
+                  Button btnExit = new Button(this);
+                  btnExit.setText("Exit");
+                  btnExit.setAllCaps(false);
+                  btnExit.setTextColor(Color.WHITE);
+                  btnExit.setTextSize(15f);
+                  btnExit.setTypeface(null, Typeface.BOLD);
+                  btnExit.setBackgroundResource(R.drawable.bg_resume_btn);
+                  btnExit.setFocusable(true);
+                  LinearLayout.LayoutParams b2Lp = new LinearLayout.LayoutParams(240, 110);
+                  btnRow.addView(btnExit, b2Lp);
+
+                  box.addView(btnRow);
+                  d.setContentView(box);
+                  d.setCancelable(true);
+
+                  btnCancel.setOnClickListener(v -> d.dismiss());
+                  btnExit.setOnClickListener(v -> {
+                      d.dismiss();
+                      finish();
+                  });
+
+                  exitDialog = d;
+                  d.show();
+                  btnCancel.requestFocus();
+              }
+
+              private void startApkUpdateDownload(String apkUrl) {
+                  if (isDownloadingUpdate) return;
+                  isDownloadingUpdate = true;
+
+                  Dialog progDialog = new Dialog(this);
+                  progDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+                  progDialog.setCancelable(false);
+                  if (progDialog.getWindow() != null) {
+                      progDialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+                  }
+
+                  LinearLayout box = new LinearLayout(this);
+                  box.setOrientation(LinearLayout.VERTICAL);
+                  box.setGravity(Gravity.CENTER);
+                  box.setBackgroundResource(R.drawable.bg_buffering_card);
+                  box.setPadding(64, 48, 64, 48);
+
+                  ProgressBar pb = new ProgressBar(this);
+                  box.addView(pb);
+
+                  TextView statusTv = new TextView(this);
+                  statusTv.setText("Downloading Update... 0%");
+                  statusTv.setTextColor(Color.WHITE);
+                  statusTv.setTextSize(15f);
+                  statusTv.setTypeface(null, Typeface.BOLD);
+                  LinearLayout.LayoutParams stLp = new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                  stLp.topMargin = 24;
+                  box.addView(statusTv, stLp);
+
+                  progDialog.setContentView(box);
+                  progDialog.show();
+
+                  new Thread(() -> {
+                      HttpURLConnection conn = null;
+                      try {
+                          String currentUrl = apkUrl;
+                          for (int redirects = 0; redirects < 6; redirects++) {
+                              conn = (HttpURLConnection) new URL(currentUrl).openConnection();
+                              conn.setInstanceFollowRedirects(true);
+                              conn.setConnectTimeout(15000);
+                              conn.setReadTimeout(30000);
+                              conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Android TV)");
+                              int code = conn.getResponseCode();
+                              if (code == HttpURLConnection.HTTP_MOVED_PERM || code == HttpURLConnection.HTTP_MOVED_TEMP || code == 303 || code == 307 || code == 308) {
+                                  String next = conn.getHeaderField("Location");
+                                  conn.disconnect();
+                                  if (next == null || next.isEmpty()) break;
+                                  currentUrl = next;
+                                  continue;
+                              }
+                              break;
+                          }
+
+                          if (conn == null || conn.getResponseCode() >= 400) {
+                              throw new Exception("Download failed");
+                          }
+
+                          long total = conn.getContentLength();
+                          File dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+                          if (dir == null) dir = getCacheDir();
+                          File outFile = new File(dir, "jj-movies-tv-update.apk");
+                          if (outFile.exists()) outFile.delete();
+
+                          try (InputStream in = conn.getInputStream();
+                               FileOutputStream out = new FileOutputStream(outFile)) {
+                              byte[] buf = new byte[8192];
+                              long downloaded = 0;
+                              int n;
+                              int lastPct = -1;
+                              while ((n = in.read(buf)) != -1) {
+                                  out.write(buf, 0, n);
+                                  downloaded += n;
+                                  if (total > 0) {
+                                      int pct = (int) ((downloaded * 100L) / total);
+                                      if (pct != lastPct) {
+                                          lastPct = pct;
+                                          final int showPct = pct;
+                                          runOnUiThread(() -> statusTv.setText("Downloading Update... " + showPct + "%"));
+                                      }
+                                  }
+                              }
+                          }
+
+                          runOnUiThread(() -> {
+                              isDownloadingUpdate = false;
+                              if (progDialog.isShowing()) progDialog.dismiss();
+                              installDownloadedApk(outFile);
+                          });
+                      } catch (Exception e) {
+                          runOnUiThread(() -> {
+                              isDownloadingUpdate = false;
+                              if (progDialog.isShowing()) progDialog.dismiss();
+                              Toast.makeText(MainActivity.this, "Opening update link...", Toast.LENGTH_SHORT).show();
+                              try {
+                                  startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl)));
+                              } catch (Exception ignored) {}
+                          });
+                      } finally {
+                          if (conn != null) conn.disconnect();
+                      }
+                  }).start();
+              }
+
+              private void installDownloadedApk(File apkFile) {
+                  try {
+                      Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", apkFile);
+                      Intent install = new Intent(Intent.ACTION_VIEW);
+                      install.setDataAndType(uri, "application/vnd.android.package-archive");
+                      install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                      startActivity(install);
+                  } catch (Exception e) {
+                      Toast.makeText(this, "Enable Install Unknown Apps for JJ Movies TV", Toast.LENGTH_LONG).show();
+                  }
               }
 
               @Override
@@ -1013,7 +1350,7 @@ jobs:
                   if (keyCode == KeyEvent.KEYCODE_BACK) {
                       webView.evaluateJavascript("window.handleTvBack ? window.handleTvBack() : 'exit'", val -> {
                           if (val == null || val.contains("exit")) {
-                              finish();
+                              showExitConfirmDialog();
                           }
                       });
                       return true;
@@ -1029,7 +1366,7 @@ jobs:
           }
           EOF
 
-      - name: 4. Setup Native LibVLC Player with Dolby Digital Passthrough
+      - name: 4. Setup Native LibVLC Player with Dolby & Continue/Start Over
         run: |
           cat << 'EOF' > app/src/main/java/com/jjmovies/tv/VlcPlayerActivity.java
           package com.jjmovies.tv;
@@ -1044,6 +1381,7 @@ jobs:
           import android.view.KeyEvent;
           import android.view.View;
           import android.view.WindowManager;
+          import android.widget.Button;
           import android.widget.ImageButton;
           import android.widget.LinearLayout;
           import android.widget.RelativeLayout;
@@ -1066,11 +1404,17 @@ jobs:
               private LibVLC libVLC;
               private MediaPlayer mediaPlayer;
               private VLCVideoLayout videoLayout;
-              private RelativeLayout controlsOverlay, tracksOverlay;
+              private RelativeLayout controlsOverlay, tracksOverlay, resumeOverlay;
               private LinearLayout loadingBox, audioTracksContainer, subtitleTracksContainer;
               private SeekBar seekBar, subtitleSizeSeekBar;
               private TextView tvCurrentTime, tvTotalTime, tvTitle, tvBufferingText, tvSubtitleSizeVal;
+              private TextView tvResumeTitle, tvResumeSubtitle;
+              private Button btnResumeContinue, btnResumeRestart;
               private ImageButton btnPlayPause, btnTracks;
+
+              private SharedPreferences resumePrefs;
+              private String resumeKey = "";
+              private long pendingResumeMs = 0L;
 
               private String rawVideoUrl = "";
               private String movieDisplayTitle = "JJ Movies TV";
@@ -1097,7 +1441,7 @@ jobs:
               private final String[] scaleNames = { "Best Fit", "Fill Screen", "Zoom / Crop", "16:9" };
 
               private final Runnable hideControlsRunnable = () -> {
-                  if (controlsOverlay != null && mediaPlayer != null && mediaPlayer.isPlaying() && !isTracksOpen()) {
+                  if (controlsOverlay != null && mediaPlayer != null && mediaPlayer.isPlaying() && !isTracksOpen() && !isResumeOpen()) {
                       controlsOverlay.setVisibility(View.GONE);
                       controlsVisible = false;
                       hideSystemUi();
@@ -1107,7 +1451,7 @@ jobs:
               private final Runnable progressUpdater = new Runnable() {
                   @Override
                   public void run() {
-                      if (mediaPlayer != null && !isUserSeeking) {
+                      if (mediaPlayer != null && !isUserSeeking && !isResumeOpen()) {
                           long total = mediaPlayer.getLength();
                           long current = mediaPlayer.getTime();
                           if (total > 0) {
@@ -1115,6 +1459,7 @@ jobs:
                               seekBar.setProgress((int) Math.max(0, current));
                               tvCurrentTime.setText(formatTime(current));
                               tvTotalTime.setText(formatTime(total));
+                              saveCurrentProgress(current, total);
                           }
                           if (!audioTrackInitialized && mediaPlayer.isPlaying()) {
                               ensureActiveAudioTrack();
@@ -1123,6 +1468,15 @@ jobs:
                       handler.postDelayed(this, 500);
                   }
               };
+
+              private void saveCurrentProgress(long currentMs, long totalMs) {
+                  if (resumePrefs == null || resumeKey.isEmpty() || totalMs <= 0) return;
+                  if (currentMs > 15000L && currentMs < (totalMs - 30000L)) {
+                      resumePrefs.edit().putLong(resumeKey, currentMs).apply();
+                  } else if (currentMs >= (totalMs - 30000L)) {
+                      resumePrefs.edit().remove(resumeKey).apply();
+                  }
+              }
 
               private void ensureActiveAudioTrack() {
                   if (mediaPlayer == null) return;
@@ -1152,6 +1506,10 @@ jobs:
                   return tracksOverlay != null && tracksOverlay.getVisibility() == View.VISIBLE;
               }
 
+              private boolean isResumeOpen() {
+                  return resumeOverlay != null && resumeOverlay.getVisibility() == View.VISIBLE;
+              }
+
               private void hideSystemUi() {
                   getWindow().getDecorView().setSystemUiVisibility(
                       View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -1167,7 +1525,7 @@ jobs:
                   if (controlsOverlay != null) {
                       controlsOverlay.setVisibility(View.VISIBLE);
                       controlsVisible = true;
-                      if (!isTracksOpen() && btnPlayPause != null && getCurrentFocus() == null) {
+                      if (!isTracksOpen() && !isResumeOpen() && btnPlayPause != null && getCurrentFocus() == null) {
                           btnPlayPause.requestFocus();
                       }
                   }
@@ -1245,11 +1603,14 @@ jobs:
                   }
 
                   SharedPreferences prefs = getSharedPreferences("jj_tv_player", MODE_PRIVATE);
+                  resumePrefs = getSharedPreferences("jj_tv_resume_pos", MODE_PRIVATE);
+                  resumeKey = "pos_" + movieDisplayTitle.toLowerCase(Locale.US).replaceAll("[^a-z0-9]+", "_");
                   subtitleSizeIndex = Math.max(0, Math.min(3, prefs.getInt("sub_size_idx", 1)));
 
                   videoLayout = findViewById(R.id.vlc_video_layout);
                   controlsOverlay = findViewById(R.id.controls_overlay);
                   tracksOverlay = findViewById(R.id.tracks_overlay);
+                  resumeOverlay = findViewById(R.id.resume_overlay);
                   loadingBox = findViewById(R.id.vlc_loading_box);
                   tvBufferingText = findViewById(R.id.tv_buffering_text);
                   seekBar = findViewById(R.id.vlc_seekbar);
@@ -1262,6 +1623,10 @@ jobs:
                   subtitleTracksContainer = findViewById(R.id.subtitle_tracks_container);
                   tvSubtitleSizeVal = findViewById(R.id.tv_subtitle_size_val);
                   subtitleSizeSeekBar = findViewById(R.id.subtitle_size_seekbar);
+                  tvResumeTitle = findViewById(R.id.tv_resume_title);
+                  tvResumeSubtitle = findViewById(R.id.tv_resume_subtitle);
+                  btnResumeContinue = findViewById(R.id.btn_resume_continue);
+                  btnResumeRestart = findViewById(R.id.btn_resume_restart);
 
                   ImageButton btnBack = findViewById(R.id.btn_back);
                   ImageButton btnAspect = findViewById(R.id.btn_aspect);
@@ -1270,16 +1635,48 @@ jobs:
                   if (tvSubtitleSizeVal != null) tvSubtitleSizeVal.setText(subSizeLabels[subtitleSizeIndex]);
                   if (subtitleSizeSeekBar != null) subtitleSizeSeekBar.setProgress(subtitleSizeIndex);
 
-                  initVlcEngine(0L);
+                  long savedPos = resumePrefs.getLong(resumeKey, 0L);
+                  if (savedPos > 15000L && resumeOverlay != null) {
+                      pendingResumeMs = savedPos;
+                      loadingBox.setVisibility(View.GONE);
+                      controlsOverlay.setVisibility(View.GONE);
+                      controlsVisible = false;
+                      if (tvResumeTitle != null) tvResumeTitle.setText(movieDisplayTitle);
+                      if (tvResumeSubtitle != null) tvResumeSubtitle.setText("Stopped at " + formatTime(savedPos));
+                      if (btnResumeContinue != null) btnResumeContinue.setText("▶ Continue (" + formatTime(savedPos) + ")");
+                      resumeOverlay.setVisibility(View.VISIBLE);
+                      if (btnResumeContinue != null) btnResumeContinue.requestFocus();
+                  } else {
+                      initVlcEngine(0L);
+                      scheduleHideControls();
+                  }
+
                   handler.post(progressUpdater);
-                  scheduleHideControls();
+
+                  if (btnResumeContinue != null) {
+                      btnResumeContinue.setOnClickListener(v -> {
+                          resumeOverlay.setVisibility(View.GONE);
+                          loadingBox.setVisibility(View.VISIBLE);
+                          initVlcEngine(pendingResumeMs);
+                          showControls();
+                      });
+                  }
+                  if (btnResumeRestart != null) {
+                      btnResumeRestart.setOnClickListener(v -> {
+                          resumeOverlay.setVisibility(View.GONE);
+                          resumePrefs.edit().remove(resumeKey).apply();
+                          loadingBox.setVisibility(View.VISIBLE);
+                          initVlcEngine(0L);
+                          showControls();
+                      });
+                  }
 
                   if (btnBack != null) btnBack.setOnClickListener(v -> finish());
                   if (btnTracks != null) btnTracks.setOnClickListener(v -> openTracksPanel());
                   if (tracksOverlay != null) tracksOverlay.setOnClickListener(v -> closeTracksPanel());
                   if (btnPlayPause != null) {
                       btnPlayPause.setOnClickListener(v -> { togglePlayPause(); scheduleHideControls(); });
-                      btnPlayPause.requestFocus();
+                      if (!isResumeOpen()) btnPlayPause.requestFocus();
                   }
                   if (btnAspect != null) {
                       btnAspect.setOnClickListener(v -> {
@@ -1369,11 +1766,20 @@ jobs:
                   mediaPlayer.setAudioDigitalOutputEnabled(true);
                   mediaPlayer.attachViews(videoLayout, null, false, false);
 
+                  final long targetResume = resumePositionMs;
+                  final boolean[] seekApplied = { false };
+
                   mediaPlayer.setEventListener(event -> runOnUiThread(() -> {
                       if (event.type == MediaPlayer.Event.Playing) {
                           loadingBox.setVisibility(View.GONE);
                           btnPlayPause.setImageResource(R.drawable.ic_vlc_pause);
                           ensureActiveAudioTrack();
+                          if (targetResume > 0L && !seekApplied[0]) {
+                              seekApplied[0] = true;
+                              mediaPlayer.setTime(targetResume);
+                              if (prevAudio != -2) mediaPlayer.setAudioTrack(prevAudio);
+                              if (prevSpu != -2) mediaPlayer.setSpuTrack(prevSpu);
+                          }
                           scheduleHideControls();
                       } else if (event.type == MediaPlayer.Event.Paused) {
                           btnPlayPause.setImageResource(R.drawable.ic_vlc_play);
@@ -1406,15 +1812,6 @@ jobs:
                   media.release();
 
                   mediaPlayer.play();
-                  if (resumePositionMs > 0L) {
-                      handler.postDelayed(() -> {
-                          if (mediaPlayer != null) {
-                              mediaPlayer.setTime(resumePositionMs);
-                              if (prevAudio != -2) mediaPlayer.setAudioTrack(prevAudio);
-                              if (prevSpu != -2) mediaPlayer.setSpuTrack(prevSpu);
-                          }
-                      }, 450);
-                  }
               }
 
               private void openTracksPanel() {
@@ -1557,6 +1954,14 @@ jobs:
 
               @Override
               public boolean onKeyDown(int keyCode, KeyEvent event) {
+                  if (isResumeOpen()) {
+                      if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
+                          finish();
+                          return true;
+                      }
+                      return super.onKeyDown(keyCode, event);
+                  }
+
                   if (isTracksOpen()) {
                       if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
                           closeTracksPanel();
@@ -1619,7 +2024,10 @@ jobs:
               @Override
               protected void onStop() {
                   super.onStop();
-                  if (mediaPlayer != null) mediaPlayer.stop();
+                  if (mediaPlayer != null) {
+                      saveCurrentProgress(mediaPlayer.getTime(), mediaPlayer.getLength());
+                      mediaPlayer.stop();
+                  }
               }
 
               @Override
