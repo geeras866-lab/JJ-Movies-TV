@@ -49,6 +49,28 @@ jobs:
             esac
           done
 
+          if [ ! -f "www/index.html" ]; then
+            FOUND_HTML=$(find . -maxdepth 3 -name "index.html" -not -path "./www/*" -not -path "./android/*" -not -path "./node_modules/*" | head -n 1)
+            if [ -n "$FOUND_HTML" ]; then
+              cp -r "$(dirname "$FOUND_HTML")/." www/
+            else
+              cat << 'EOF' > www/index.html
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>JJ Movies TV</title>
+          </head>
+          <body style="background:#000;color:#fff;font-family:sans-serif;">
+            <div id="app"></div>
+            <script src="./app.js"></script>
+          </body>
+          </html>
+          EOF
+            fi
+          fi
+
           rm -f www/package.json www/package-lock.json
           if [ ! -f package.json ]; then
             npm init -y >/dev/null 2>&1
@@ -82,20 +104,23 @@ jobs:
             npx capacitor-assets generate --android --iconBackgroundColor '#080d18' --splashBackgroundColor '#080d18' || true
           fi
 
-          if [ -f "android/app/build.gradle" ]; then
-            sed -i "s/applicationId \"[^\"]*\"/applicationId \"com.jjmovies.tv\"/" android/app/build.gradle
-            sed -i "s/versionCode [0-9]*/versionCode ${VER_CODE}/" android/app/build.gradle
-            sed -i "s/versionName \"[^\"]*\"/versionName \"${VER_NAME}\"/" android/app/build.gradle
-          fi
-
           STR="android/app/src/main/res/values/strings.xml"
           if [ -f "$STR" ]; then
             sed -i 's|<string name="app_name">[^<]*</string>|<string name="app_name">JJ Movies TV</string>|' "$STR"
             sed -i 's|<string name="title_activity_main">[^<]*</string>|<string name="title_activity_main">JJ Movies TV</string>|' "$STR"
           fi
 
-      - name: Configure TV Manifest, JJTV User-Agent & Native LibVLC Player
+      - name: Configure TV Manifest, FileProvider, Gradle & Native LibVLC Player
         run: |
+          mkdir -p android/app/src/main/res/xml
+          cat << 'EOF' > android/app/src/main/res/xml/file_paths.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths xmlns:android="http://schemas.android.com/apk/res/android">
+              <external-path name="external_files" path="." />
+              <cache-path name="cache" path="." />
+          </paths>
+          EOF
+
           cat << 'EOF' > android/app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -344,7 +369,6 @@ jobs:
                   root.addView(controlsBar, barParams);
                   setContentView(root);
 
-                  // D-pad focus for TV remotes
                   playPauseBtn.requestFocus();
 
                   seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -444,7 +468,6 @@ jobs:
                       finish();
                       return true;
                   }
-                  // DPAD keys are left to the focused buttons / seekbar
                   return super.onKeyDown(keyCode, event);
               }
 
@@ -466,32 +489,57 @@ jobs:
           }
           EOF
 
-          GRADLE="android/app/build.gradle"
-
-          if ! grep -q "libvlc-all" "$GRADLE"; then
-            cat << 'EOF' >> "$GRADLE"
-
-          dependencies {
-              implementation "org.videolan.android:libvlc-all:3.6.0"
+          cat << 'EOF' > android/app/build.gradle
+          plugins {
+              id 'com.android.application'
           }
-          EOF
-          fi
-
-          if ! grep -q "abiFilters" "$GRADLE"; then
-            sed -i '0,/defaultConfig {/s//defaultConfig {\n        ndk { abiFilters "armeabi-v7a", "arm64-v8a" }/' "$GRADLE"
-          fi
-
-          if ! grep -q "pickFirsts" "$GRADLE"; then
-            cat << 'EOF' >> "$GRADLE"
 
           android {
+              namespace 'com.jjmovies.tv'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "com.jjmovies.tv"
+                  minSdk 21
+                  targetSdk 34
+                  versionCode ${VER_CODE}
+                  versionName "${VER_NAME}"
+                  ndk {
+                      abiFilters "armeabi-v7a", "arm64-v8a"
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+
               packaging {
                   jniLibs {
                       pickFirsts.add("**/*.so")
                   }
               }
           }
+
+          dependencies {
+              implementation project(':capacitor-android')
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'com.google.android.material:material:1.11.0'
+              implementation('org.videolan.android:libvlc-all:3.6.0') {
+                  exclude group: 'androidx.legacy', module: 'legacy-support-v4'
+              }
+              implementation 'androidx.legacy:legacy-support-v4:1.0.0'
+          }
           EOF
+
+          if [ -f "android/capacitor.settings.gradle" ]; then
+            sed -i "s/versionCode [0-9]*/versionCode ${VER_CODE}/" android/app/build.gradle || true
           fi
 
       - name: Build Debug TV APK
