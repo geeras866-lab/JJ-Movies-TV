@@ -1079,6 +1079,7 @@ jobs:
               private final Handler handler = new Handler(Looper.getMainLooper());
               private boolean isUserSeeking = false;
               private boolean controlsVisible = true;
+              private boolean audioTrackInitialized = false;
               private int aspectMode = 0;
 
               private int dpadSeekStreak = 0;
@@ -1113,10 +1114,37 @@ jobs:
                               tvCurrentTime.setText(formatTime(current));
                               tvTotalTime.setText(formatTime(total));
                           }
+                          if (!audioTrackInitialized && mediaPlayer.isPlaying()) {
+                              ensureActiveAudioTrack();
+                          }
                       }
                       handler.postDelayed(this, 500);
                   }
               };
+
+              private void ensureActiveAudioTrack() {
+                  if (mediaPlayer == null) return;
+                  MediaPlayer.TrackDescription[] tracks = mediaPlayer.getAudioTracks();
+                  if (tracks != null && tracks.length > 0) {
+                      int cur = mediaPlayer.getAudioTrack();
+                      boolean valid = false;
+                      for (MediaPlayer.TrackDescription td : tracks) {
+                          if (td.id != -1 && td.id == cur) {
+                              valid = true;
+                              break;
+                          }
+                      }
+                      if (!valid) {
+                          for (MediaPlayer.TrackDescription td : tracks) {
+                              if (td.id != -1) {
+                                  mediaPlayer.setAudioTrack(td.id);
+                                  break;
+                              }
+                          }
+                      }
+                      audioTrackInitialized = true;
+                  }
+              }
 
               private boolean isTracksOpen() {
                   return tracksOverlay != null && tracksOverlay.getVisibility() == View.VISIBLE;
@@ -1311,6 +1339,7 @@ jobs:
               private void initVlcEngine(long resumePositionMs) {
                   int prevAudio = mediaPlayer != null ? mediaPlayer.getAudioTrack() : -2;
                   int prevSpu = mediaPlayer != null ? mediaPlayer.getSpuTrack() : -2;
+                  audioTrackInitialized = false;
 
                   if (mediaPlayer != null) {
                       mediaPlayer.stop();
@@ -1325,9 +1354,9 @@ jobs:
 
                   ArrayList<String> options = new ArrayList<>();
                   options.add("--audio-time-stretch");
-                  options.add("--aout=opensles");
+                  options.add("--aout=audiotrack");
                   options.add("--audio-resampler=soxr");
-                  options.add("--avcodec-hw=any");
+                  options.add("--avcodec-hw=all");
                   options.add("--network-caching=3000");
                   options.add("--file-caching=1500");
                   options.add("--http-reconnect");
@@ -1341,6 +1370,7 @@ jobs:
                       if (event.type == MediaPlayer.Event.Playing) {
                           loadingBox.setVisibility(View.GONE);
                           btnPlayPause.setImageResource(R.drawable.ic_vlc_pause);
+                          ensureActiveAudioTrack();
                           scheduleHideControls();
                       } else if (event.type == MediaPlayer.Event.Paused) {
                           btnPlayPause.setImageResource(R.drawable.ic_vlc_play);
@@ -1366,7 +1396,7 @@ jobs:
                   media.setHWDecoderEnabled(true, true);
                   media.addOption(":network-caching=3000");
                   media.addOption(":http-reconnect");
-                  media.addOption(":avcodec-hw=any");
+                  media.addOption(":avcodec-hw=all");
                   media.addOption(":freetype-rel-fontsize=" + subRelValues[subtitleSizeIndex]);
                   mediaPlayer.setMedia(media);
                   media.release();
